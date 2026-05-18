@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>픽핏 — 내 상황에 맞는 코디를 고르는 가장 빠른 방법</title>
+  <meta name="description" content="픽핏은 상황·체형·예산 기반으로 3분 안에 패션 구매 결정을 끝내게 해주는 한국형 패션 결정 에이전트 웹앱입니다." />
+
+  <!-- Pretendard Variable -->
+  <link rel="stylesheet"
+    href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&display=swap" />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'brand-blue': '#6574FF',
+            'cta-blue': '#4D5EFF',
+            'accent-lime': '#E4FF5D',
+            'ink': '#12141A',
+            'text-secondary': '#5F6675',
+            'border-line': '#D9DCE6',
+            'bg': '#F7F8FC',
+            'surface-subtle': '#EEF1F6',
+            'success': '#1F8A4D',
+            'success-surface': '#EAF7EF',
+            'warning-strong': '#B7791F',
+            'warning-surface': '#FFF4E5',
+            'error': '#C53B3B',
+            'error-surface': '#FDECEC',
+            'info': '#3157E0',
+            'info-surface': '#EAF0FF',
+          },
+          fontFamily: {
+            pretendard: ['"Pretendard Variable"', 'system-ui', 'sans-serif'],
+          },
+          borderRadius: {
+            xs: '8px',
+            sm: '12px',
+            md: '16px',
+            lg: '20px',
+            xl: '24px',
+            pill: '999px',
+          },
+          boxShadow: {
+            card: '0 4px 16px rgba(18, 20, 26, 0.06)',
+            modal: '0 12px 32px rgba(18, 20, 26, 0.10)',
+          },
+          transitionDuration: {
+            fast: '120ms',
+            normal: '180ms',
+            emphasis: '240ms',
+            panel: '280ms',
+          },
+          transitionTimingFunction: {
+            pf: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
+          },
+        },
+      },
+    }
+  </script>
+
+  <!-- Custom Styles -->
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+
+<body class="font-pretendard text-ink antialiased" style="background:#F7F8FC; min-height:100vh;">
+  <!-- Desktop centering wrapper -->
+  <div style="max-width:480px; margin:0 auto; min-height:100vh; background:#F7F8FC; position:relative; box-shadow:0 0 60px rgba(18,20,26,0.10);">
+    <!-- App Root -->
+    <div id="app" class="relative flex flex-col" style="min-height:100vh;">
+      <!-- Screen Container -->
+      <main id="screen-container" style="flex:1; padding-bottom:128px;">
+        <!-- Screens are rendered here dynamically -->
+      </main>
+      <!-- Bottom Navigation -->
+      <nav id="bottom-nav" style="position:fixed; bottom:0; left:50%; transform:translateX(-50%); width:100%; max-width:480px; z-index:50;">
+        <!-- Rendered by navbar.js -->
+      </nav>
+
+      <!-- Toast Container -->
+      <div id="toast-container" style="position:fixed; bottom:124px; left:50%; transform:translateX(-50%); width:calc(100% - 32px); max-width:448px; z-index:60; display:flex; flex-direction:column; align-items:center; pointer-events:none;">
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script type="module" src="js/app.js"></script>
+</body>
+
+</html>
