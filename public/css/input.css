@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@source "../app.html";
+@source "../js/**/*.js";
+
+@theme {
+  --font-pretendard: "Pretendard Variable", system-ui, sans-serif;
+  --color-brand-blue: #6574ff;
+  --color-cta-blue: #4d5eff;
+  --color-accent-lime: #e4ff5d;
+  --color-ink: #12141a;
+  --color-text-secondary: #5f6675;
+  --color-border-line: #d9dce6;
+  --color-bg: #f7f8fc;
+  --color-surface-subtle: #eef1f6;
+  --color-success: #1f8a4d;
+  --color-success-surface: #eaf7ef;
+  --color-warning-strong: #b7791f;
+  --color-warning-surface: #fff4e5;
+  --color-error: #c53b3b;
+  --color-error-surface: #fdecec;
+  --color-info: #3157e0;
+  --color-info-surface: #eaf0ff;
+}
+
+@import "./styles.css";

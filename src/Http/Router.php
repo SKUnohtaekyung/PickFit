@@ -16,10 +16,15 @@ final class Router
      */
     public function get(string $path, callable $handler): void
     {
-        $this->routes['GET'][] = [
-            'path' => $path,
-            'handler' => $handler,
-        ];
+        $this->add('GET', $path, $handler);
+    }
+
+    /**
+     * @param callable(array<string, string>): Response $handler
+     */
+    public function post(string $path, callable $handler): void
+    {
+        $this->add('POST', $path, $handler);
     }
 
     public function dispatch(Request $request): ?Response
@@ -33,6 +38,17 @@ final class Router
         }
 
         return null;
+    }
+
+    /**
+     * @param callable(array<string, string>): Response $handler
+     */
+    private function add(string $method, string $path, callable $handler): void
+    {
+        $this->routes[$method][] = [
+            'path' => $path,
+            'handler' => $handler,
+        ];
     }
 
     /**

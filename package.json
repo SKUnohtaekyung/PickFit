@@ -1,0 +1,13 @@
+{
+  "scripts": {
+    "dev": "http-server . -p 8000 -c-1",
+    "tailwind:watch": "tailwindcss -i ./public/css/input.css -o ./public/css/app.css --watch",
+    "tailwind:build": "tailwindcss -i ./public/css/input.css -o ./public/css/app.css --minify",
+    "build": "npm run tailwind:build"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.0",
+    "http-server": "^14.1.1",
+    "tailwindcss": "^4.3.0"
+  }
+}

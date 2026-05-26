@@ -4,6 +4,7 @@
 
 import { state } from './utils/state.js';
 import { renderNavbar } from './components/navbar.js';
+import { initializeAuth } from './components/authModal.js';
 import { renderLanding } from './screens/landing.js';
 import { renderOnboarding } from './screens/onboarding.js';
 import { renderLoading } from './screens/loading.js';
@@ -79,6 +80,7 @@ export function navigateTo(screen, params = {}) {
 
 // Initialize app
 function init() {
+  initializeAuth();
   navigateTo('landing');
 }
 
