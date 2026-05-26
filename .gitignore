@@ -11,6 +11,7 @@ vendor/
 storage/logs/
 storage/crawls/
 storage/cache/
+storage/rate-limits/
 dist/
 build/
 coverage/

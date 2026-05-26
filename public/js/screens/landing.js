@@ -4,6 +4,9 @@
 
 import { SITUATIONS } from '../data/mock.js';
 import { state } from '../utils/state.js';
+import { mountAuthSlot } from '../components/authModal.js';
+
+let unmountAuthSlot = null;
 
 export function renderLanding(container) {
   const onboarding = state.get('onboarding');
@@ -26,6 +29,7 @@ export function renderLanding(container) {
             <span class="lnd-service-label">AI 패션 결정 에이전트</span>
           </div>
         </div>
+        <div class="pf-auth-slot" data-auth-slot aria-live="polite"></div>
       </header>
 
       <section class="lnd-hero">
@@ -122,6 +126,9 @@ export function renderLanding(container) {
       <div class="lnd-bottom-space" aria-hidden="true"></div>
     </div>
   `;
+
+  unmountAuthSlot?.();
+  unmountAuthSlot = mountAuthSlot(container.querySelector('[data-auth-slot]'));
 
   const selectionStatus = container.querySelector('#selection-status');
   const launchStages = [...container.querySelectorAll('.lnd-launch-stage')];

@@ -149,3 +149,127 @@
 
 ### Next Start Point
 - Day 2 can continue with small API hardening/tests, or Day 3 can start auth/session/CSRF once the catalog contract is accepted.
+
+## Maintenance Check - 2026-05-26
+
+### Completed
+- Re-read `development_10day_plan.md`, `tech.md`, and current Day 1/2 backend files.
+- Confirmed Day 1 foundation is implemented and runnable.
+- Confirmed Day 2 schema, seed, repository, and catalog API are implemented.
+- Found current runtime failure source: local MySQL was not running, so `GET /api/products` returned a generic 500.
+- Updated catalog route handling to return a typed `database_unavailable` 503 response when PDO cannot connect.
+- Restarted the local MySQL 8.4.9 development process and confirmed the `pickfit` database still has 9 seeded products.
+
+### Changed Files
+- `src/Bootstrap.php`
+- `WORKLOG.md`
+
+### Verification
+- `php -v`: pass, PHP 8.5.3.
+- `composer -V`: pass, Composer 2.9.8.
+- `mysql --version`: pass, MySQL client 8.4.9.
+- `php -l src/Bootstrap.php`: pass.
+- `composer test`: pass, `public/index.php` syntax check succeeded.
+- `GET /api/health` before DB restart: pass, HTTP 200.
+- `GET /` before DB restart: pass, HTTP 200.
+- `GET /api/products` before DB restart: pass for error handling, HTTP 503 with `database_unavailable`.
+- `mysql -h 127.0.0.1 -P 3306 -u root -e "SELECT VERSION(); USE pickfit; SELECT COUNT(*) AS products FROM products;"`: pass, MySQL 8.4.9 and 9 products.
+- `GET /api/products?limit=3` after DB restart: pass, 3 products and `nextCursor=prod-003`.
+- `GET /api/products/prod-001` after DB restart: pass, detail includes variants, media, and reviews.
+
+### Blocked or Deferred
+- MySQL is still a local development process rather than a Windows service, so product APIs will return `database_unavailable` after reboot until MySQL is started again.
+- Day 3 auth/session/CSRF has not started.
+
+### Next Start Point
+- Start Day 3 with auth/session/CSRF after confirming MySQL is running.
+- Consider adding a small local run script for the PHP server and MySQL dev process so Day 2 verification is repeatable.
+
+## Day 3 Phase 5 - Minimal Auth UI Integration - 2026-05-26
+
+### Completed
+- Added a same-origin frontend auth API wrapper for CSRF, register, login, logout, and current-user checks.
+- Added a minimal landing-page auth slot and modal for login/register/logout without redesigning the existing SPA flow.
+- Initialized frontend auth state on app startup and guarded against stale `/api/auth/me` responses overwriting a newer login.
+- Aligned duplicate email registration with the documented `validation_failed` HTTP 422 contract.
+- Added frontend handling for the future `rate_limited` auth error code.
+- Restarted the local MySQL 8.4.9 development process when it was found stopped during verification.
+
+### Changed Files
+- `public/js/api/auth.js`
+- `public/js/components/authModal.js`
+- `public/js/screens/landing.js`
+- `public/js/app.js`
+- `public/css/styles.css`
+- `src/Controllers/AuthController.php`
+- `WORKLOG.md`
+
+### Verification
+- `node --check public/js/api/auth.js`: pass.
+- `node --check public/js/components/authModal.js`: pass.
+- `node --check public/js/screens/landing.js`: pass.
+- `node --check public/js/app.js`: pass.
+- `php -l src/Controllers/AuthController.php`: pass.
+- `composer test`: pass, `public/index.php` syntax check succeeded.
+- API smoke `csrf -> register -> me -> logout -> me 401 -> csrf -> login -> logout`: pass.
+- Duplicate registration contract: pass, second register returns HTTP 422 `validation_failed`.
+- Headless Chrome auth flow at 390px and 480px: pass for login slot, register modal, logout, login, no horizontal overflow, and no header/nav overlap.
+- Test users cleanup: pass, `users` count returned to 0.
+- Subagent verification: pass, no blocking Phase 5 issues found.
+
+### Blocked or Deferred
+- Backend auth rate limiting is still deferred; the frontend now has a `rate_limited` message path ready for it.
+- `/api/health` still intentionally uses its existing lightweight response shape; it is not used by the auth client.
+- Tailwind CDN production warning remains expected for the prototype and is still deferred to planned Tailwind CLI work.
+
+### Next Start Point
+- Continue to the next planned phase after confirming `php -S 127.0.0.1:8002 -t public public/index.php` and local MySQL are running.
+- Backend rate limiting should be handled as a focused security hardening slice before production.
+
+## Day 4 Readiness Prep - 2026-05-26
+
+### Completed
+- Reviewed Day 3 deferred items against the Day 4 plan and treated auth rate limiting plus Tailwind CLI build readiness as the pre-Day-4 hardening targets.
+- Added a file-backed auth rate limiter using `RATE_LIMIT_AUTH_PER_HOUR`, storing runtime counters under ignored `storage/rate-limits/`.
+- Added a shared frontend API client with JSON parsing, normalized errors, CSRF injection, same-origin credentials, timeout handling, and one-time CSRF retry.
+- Refactored the auth API wrapper to use the shared API client.
+- Added Day 4 API wrapper starting points for catalog, recommendations, saved outfits, and feedback.
+- Installed Tailwind CSS CLI dependencies and added `public/css/input.css -> public/css/app.css` build flow.
+- Switched the SPA shell from Tailwind CDN to built `css/app.css`.
+
+### Changed Files
+- `.gitignore`
+- `package.json`
+- `package-lock.json`
+- `public/app.html`
+- `public/css/input.css`
+- `public/css/app.css`
+- `public/js/api/client.js`
+- `public/js/api/auth.js`
+- `public/js/api/catalog.js`
+- `public/js/api/recommendations.js`
+- `public/js/api/saved.js`
+- `src/Bootstrap.php`
+- `src/Http/Request.php`
+- `src/Services/RateLimiter.php`
+- `WORKLOG.md`
+
+### Verification
+- PHP syntax check for all `src/` and `public/` PHP files: pass.
+- `composer test`: pass.
+- `node --check` for API clients, auth modal, and app entry: pass.
+- `npm run build`: pass, generated `public/css/app.css`.
+- Auth rate limit smoke: pass, first 20 bad login attempts returned 401 and attempt 21 returned 429 `rate_limited`.
+- Auth happy path smoke after clearing rate counters: pass for register, me, logout, login, logout.
+- Headless Chrome 390px/480px prep smoke: pass for built CSS loading, no Tailwind CDN request, auth register/logout, saved navigation, onboarding navigation, no horizontal overflow, and no auth-header overlap.
+- Runtime status: PHP server on `127.0.0.1:8002` and MySQL on `127.0.0.1:3306` are running.
+- Database cleanup: pass, `users` count is 0 and `products` count is 9.
+
+### Blocked or Deferred
+- `npm run build` currently emits a Node DEP0205 deprecation warning from the Tailwind CLI runtime, but the build exits successfully.
+- Recommendation, saved-outfit, and feedback backend endpoints are still intentionally unimplemented until their planned days; their frontend wrappers are ready but not wired into screens.
+- State refactor has not been applied yet; Day 4 can now do that against the shared client without changing the existing mock screens all at once.
+
+### Next Start Point
+- Start Day 4 by separating transient UI state from API-backed data in `public/js/utils/state.js`.
+- Then wire catalog/recommendation/saved wrappers screen by screen, keeping the current UI behavior intact until each endpoint exists.
