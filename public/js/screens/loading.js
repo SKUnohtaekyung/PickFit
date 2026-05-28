@@ -3,7 +3,10 @@
 // ========================================
 
 import { state } from '../utils/state.js';
-import { OUTFITS } from '../data/mock.js';
+import { createRecommendationRun } from '../api/recommendations.js';
+import { adaptRecommendationResponse } from '../api/recommendationAdapter.js';
+import { ApiError, apiErrorMessage } from '../api/client.js';
+import { showToast } from '../utils/animations.js';
 
 const LOADING_STEPS = [
   { label: '조건 정리 중…', duration: 1400 },
@@ -99,19 +102,19 @@ async function runLoadingSequence(container, navigateTo, ob) {
   let elapsed = 0;
   const total = LOADING_STEPS.reduce((sum, s) => sum + s.duration, 0) + 1000;
 
+  const apiPromise = requestRecommendations(ob);
+
   for (let i = 0; i < LOADING_STEPS.length; i++) {
     const step = LOADING_STEPS[i];
     const stepEl = container.querySelector(`#step-${i}`);
     if (!stepEl) break;
 
-    // Mark as active
     stepEl.className = 'pf-step-item ldg-step active';
     stepEl.style.transform = 'translateX(4px)';
     stepEl.querySelector('.ldg-step-label').style.color = 'var(--pf-ink)';
     stepEl.querySelector('.pf-step-icon').innerHTML = activeIcon();
     subtitle.textContent = step.label;
 
-    // Update progress
     elapsed += step.duration;
     const pct = Math.round((elapsed / total) * 90);
     if (progressBar) progressBar.style.width = `${pct}%`;
@@ -120,7 +123,6 @@ async function runLoadingSequence(container, navigateTo, ob) {
 
     await delay(step.duration);
 
-    // Mark as done
     if (stepEl) {
       stepEl.className = 'pf-step-item ldg-step completed';
       stepEl.style.transform = 'translateX(0)';
@@ -128,17 +130,82 @@ async function runLoadingSequence(container, navigateTo, ob) {
     }
   }
 
-  // Done!
-  if (progressBar) progressBar.style.width = '100%';
-  if (subtitle) subtitle.textContent = '3개의 코디를 준비했어요.';
+  const apiOutcome = await apiPromise;
 
-  // Set mock recommendations
-  state.set('recommendations', OUTFITS);
+  if (apiOutcome.status === 'success' && apiOutcome.outfits.length >= 3) {
+    if (progressBar) progressBar.style.width = '100%';
+    if (subtitle) subtitle.textContent = '3개의 코디를 준비했어요.';
+    state.setRecommendations(apiOutcome.outfits, apiOutcome.source);
+    state.set('selectedOutfitId', null);
+    state.set('compareOutfitIds', []);
+    state.set('lastRunId', apiOutcome.runId || null);
+    await delay(700);
+    navigateTo('results');
+    return;
+  }
 
-  await delay(900);
+  if (apiOutcome.status === 'unauthenticated') {
+    if (subtitle) subtitle.textContent = '로그인이 필요해요.';
+    showToast('추천을 받으려면 먼저 로그인해 주세요.');
+    await delay(900);
+    navigateTo('landing');
+    return;
+  }
 
-  // Navigate to results
-  navigateTo('results');
+  if (apiOutcome.status === 'low_coverage') {
+    if (subtitle) subtitle.textContent = '조건과 어울리는 후보가 부족해요.';
+    showToast('조건을 조금 풀어 다시 시도해 주세요.');
+    await delay(900);
+    navigateTo('onboarding');
+    return;
+  }
+
+  // §19.4 / §20.0 P1: do NOT silently swap in mock results on API failure —
+  // that would lie about success and pollute saved/feedback flows. Surface the
+  // failure and send the user back to onboarding so they can adjust + retry.
+  if (subtitle) subtitle.textContent = '추천을 만들지 못했어요.';
+  showToast(apiOutcome.message || '추천 서버에 잠시 문제가 있어요. 조건을 조금 바꿔서 다시 시도해 주세요.');
+  state.setRecommendations([], 'error');
+  state.set('lastRunId', null);
+  await delay(1100);
+  navigateTo('onboarding');
+}
+
+async function requestRecommendations(onboarding) {
+  try {
+    const response = await createRecommendationRun(buildConditions(onboarding), []);
+    const adapted = adaptRecommendationResponse(response);
+    return {
+      status: 'success',
+      outfits: adapted.outfits,
+      source: adapted.source === 'fallback' ? 'fallback-api' : 'api',
+      runId: adapted.runId,
+    };
+  } catch (error) {
+    if (error instanceof ApiError) {
+      if (error.code === 'unauthenticated' || error.status === 401) {
+        return { status: 'unauthenticated' };
+      }
+      if (error.code === 'low_catalog_coverage' || error.status === 409) {
+        return { status: 'low_coverage' };
+      }
+      return { status: 'error', message: apiErrorMessage(error) };
+    }
+    return { status: 'error', message: '추천 서버에 잠시 문제가 있어요.' };
+  }
+}
+
+function buildConditions(onboarding) {
+  return {
+    situation: onboarding?.situation ?? null,
+    budget: onboarding?.budget ?? null,
+    fit: onboarding?.fit ?? null,
+    mood: Array.isArray(onboarding?.mood) ? onboarding.mood : [],
+    bodyType: Array.isArray(onboarding?.bodyType) ? onboarding.bodyType : [],
+    colors: Array.isArray(onboarding?.colors) ? onboarding.colors : [],
+    avoidances: Array.isArray(onboarding?.avoidances) ? onboarding.avoidances : [],
+    freeText: onboarding?.freeText ?? '',
+  };
 }
 
 function delay(ms) {

@@ -2893,6 +2893,46 @@ input  { font-family: inherit; }
 ::-webkit-scrollbar-thumb { background: var(--pf-border); border-radius: 999px; }
 
 /* ============================================================
+   URL ANALYZER (Day 7)
+   ============================================================ */
+.lnd-section--secondary { padding: 0 16px; margin-top: 18px; }
+.lnd-analyzer { padding: 18px 18px 20px; display: flex; flex-direction: column; gap: 12px; }
+.lnd-analyzer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.lnd-analyzer-kicker { font-size: 11px; font-weight: 700; color: #4D5EFF; letter-spacing: 0.04em; text-transform: uppercase; margin: 0 0 2px; }
+.lnd-analyzer-title { font-size: 16px; font-weight: 700; color: #12141A; margin: 0; line-height: 1.35; }
+.lnd-analyzer-badge { background: #E4FF5D; color: #12141A; font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 999px; letter-spacing: 0.04em; align-self: flex-start; }
+.lnd-analyzer-desc { font-size: 12.5px; color: #5F6675; line-height: 1.45; margin: 0; }
+.lnd-analyzer-form { display: flex; gap: 8px; }
+.lnd-analyzer-input { flex: 1; min-width: 0; height: 42px; padding: 0 12px; border: 1px solid #D9DCE6; border-radius: 10px; background: #F7F8FC; color: #12141A; font-size: 13px; font-family: inherit; }
+.lnd-analyzer-input:focus { outline: none; border-color: #4D5EFF; background: #fff; box-shadow: 0 0 0 3px rgba(77,94,255,0.16); }
+.lnd-analyzer-input:disabled { opacity: 0.6; cursor: not-allowed; }
+.lnd-analyzer-submit { height: 42px; padding: 0 14px; border: none; border-radius: 10px; background: #4D5EFF; color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; transition: background 0.12s; white-space: nowrap; }
+.lnd-analyzer-submit:hover:not(:disabled) { background: #3D4DD9; }
+.lnd-analyzer-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+.lnd-analyzer-hint { font-size: 12px; line-height: 1.4; margin: 0; min-height: 1.2em; }
+.lnd-analyzer-hint[data-tone="warn"] { color: #B7791F; }
+.lnd-analyzer-hint[data-tone="ok"] { color: #1F8A4D; }
+.lnd-analyzer-hint[data-tone="info"], .lnd-analyzer-hint:not([data-tone]) { color: #5F6675; }
+.lnd-analyzer-status { display: flex; flex-wrap: wrap; gap: 8px 14px; padding: 10px 12px; background: #F7F8FC; border-radius: 10px; }
+.lnd-analyzer-step { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: #5F6675; }
+.lnd-analyzer-step-dot { width: 8px; height: 8px; border-radius: 50%; background: #D9DCE6; transition: background 0.18s; }
+.lnd-analyzer-step.is-active { color: #4D5EFF; font-weight: 700; }
+.lnd-analyzer-step.is-active .lnd-analyzer-step-dot { background: #4D5EFF; box-shadow: 0 0 0 3px rgba(77,94,255,0.18); }
+.lnd-analyzer-step.is-done { color: #1F8A4D; }
+.lnd-analyzer-step.is-done .lnd-analyzer-step-dot { background: #1F8A4D; }
+.lnd-analyzer-result-card { display: flex; gap: 12px; padding: 12px; border: 1px solid #EEF1F6; border-radius: 12px; background: #fff; }
+.lnd-analyzer-result-image { width: 72px; height: 72px; flex-shrink: 0; border-radius: 8px; object-fit: cover; background: #EEF1F6; }
+.lnd-analyzer-result-image--empty { display: flex; align-items: center; justify-content: center; font-size: 10px; color: #5F6675; }
+.lnd-analyzer-result-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.lnd-analyzer-result-brand { font-size: 11px; color: #5F6675; font-weight: 600; }
+.lnd-analyzer-result-name { font-size: 13px; font-weight: 700; color: #12141A; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lnd-analyzer-result-price { font-size: 13px; font-weight: 700; color: #4D5EFF; margin: 0; }
+.lnd-analyzer-result-note { font-size: 11.5px; color: #5F6675; margin: 2px 0 0; line-height: 1.4; }
+.lnd-analyzer-result-error { display: flex; gap: 10px; padding: 12px 14px; background: #FDECEC; border: 1px solid #F5C8C8; border-radius: 10px; color: #8C2A2A; font-size: 12.5px; line-height: 1.45; }
+.lnd-analyzer-result-error-icon { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: #C53B3B; color: #fff; font-weight: 700; font-size: 13px; flex-shrink: 0; }
+.lnd-analyzer-result-error p { margin: 0; }
+
+/* ============================================================
    SAFE AREA / REDUCED MOTION
    ============================================================ */
 @supports (padding-bottom: env(safe-area-inset-bottom)) {

@@ -4,7 +4,7 @@
 
 import { state } from './utils/state.js';
 import { renderNavbar } from './components/navbar.js';
-import { initializeAuth } from './components/authModal.js';
+import { initializeAuth, getAuthUser } from './components/authModal.js';
 import { renderLanding } from './screens/landing.js';
 import { renderOnboarding } from './screens/onboarding.js';
 import { renderLoading } from './screens/loading.js';
@@ -12,6 +12,7 @@ import { renderResults } from './screens/results.js';
 import { renderComparison } from './screens/comparison.js';
 import { renderDetail } from './screens/detail.js';
 import { renderSaved } from './screens/saved.js';
+import { setAuthSignal, syncSavedFromApi } from './api/userActions.js';
 
 const SCREENS = {
   landing: renderLanding,
@@ -80,7 +81,24 @@ export function navigateTo(screen, params = {}) {
 
 // Initialize app
 function init() {
-  initializeAuth();
+  initializeAuth().then(() => {
+    setAuthSignal(getAuthUser());
+    if (getAuthUser()) {
+      syncSavedFromApi().catch(() => {});
+    }
+  });
+  let priorUser = null;
+  window.addEventListener('pickfit:auth-change', () => {
+    const user = getAuthUser();
+    setAuthSignal(user);
+    if (user) {
+      syncSavedFromApi().catch(() => {});
+    } else if (priorUser) {
+      // Clear API-backed saved entries to prevent leakage between users on the same browser
+      state.clearSaved();
+    }
+    priorUser = user;
+  });
   navigateTo('landing');
 }
 

@@ -3,8 +3,11 @@
 // ========================================
 
 import { state } from '../utils/state.js';
-import { OUTFITS, getOutfit, getProduct } from '../data/mock.js';
+import { OUTFITS, getProduct as getMockProduct } from '../data/mock.js';
 import { showToast } from '../utils/animations.js';
+import { persistFeedback, persistToggleSaved } from '../api/userActions.js';
+import { resolveOutfit, resolveProductFromItem } from '../utils/resolvers.js';
+import { escapeHtml as e } from '../utils/escape.js';
 
 const SLOT_LABELS = {
   top: '상의',
@@ -24,14 +27,14 @@ const FEEDBACK_OPTIONS = [
 
 export function renderDetail(container, { navigateTo }) {
   const outfitId = state.get('selectedOutfitId');
-  const outfit = getOutfit(outfitId) || OUTFITS[0];
+  const outfit = resolveOutfit(outfitId) || OUTFITS[0];
   const isSaved = state.isSaved(outfit.id);
   const recommendations = state.get('recommendations') || OUTFITS;
 
   const items = outfit.items.map((item) => ({
     ...item,
-    product: getProduct(item.productId),
-    alternatives: item.alternatives?.map((id) => getProduct(id)).filter(Boolean) || [],
+    product: resolveProductFromItem(item),
+    alternatives: Array.isArray(item.alternatives) ? item.alternatives : [],
   }));
 
   container.innerHTML = `
@@ -47,14 +50,14 @@ export function renderDetail(container, { navigateTo }) {
             </button>
             <div class="dt-header-copy">
               <p class="dt-header-kicker">OUTFIT DETAIL</p>
-              <h1 class="dt-header-title">${outfit.title}</h1>
+              <h1 class="dt-header-title">${e(outfit.title)}</h1>
             </div>
           </div>
 
           <button
             type="button"
             class="dt-header-save ${isSaved ? 'is-saved' : ''}"
-            data-save-outfit="${outfit.id}"
+            data-save-outfit="${e(outfit.id)}"
             data-save-variant="icon"
             aria-label="${isSaved ? '저장됨' : '코디 저장'}"
             aria-pressed="${isSaved}"
@@ -68,11 +71,11 @@ export function renderDetail(container, { navigateTo }) {
         <section class="dt-hero pf-card">
           <div class="dt-hero-badges">
             <span class="dt-lime-badge">PICKFIT 추천</span>
-            <span class="dt-blue-badge">${outfit.framingLabel}</span>
+            <span class="dt-blue-badge">${e(outfit.framingLabel)}</span>
           </div>
 
-          <h2 class="dt-hero-title">${outfit.title}</h2>
-          <p class="dt-hero-summary">${outfit.summary}</p>
+          <h2 class="dt-hero-title">${e(outfit.title)}</h2>
+          <p class="dt-hero-summary">${e(outfit.summary)}</p>
 
           <div class="dt-total-block">
             <p class="dt-total-label">Estimated Total</p>
@@ -86,7 +89,7 @@ export function renderDetail(container, { navigateTo }) {
             <button
               type="button"
               class="dt-save-btn ${isSaved ? 'is-saved' : ''}"
-              data-save-outfit="${outfit.id}"
+              data-save-outfit="${e(outfit.id)}"
               data-save-variant="text"
               aria-pressed="${isSaved}"
             >
@@ -126,21 +129,21 @@ export function renderDetail(container, { navigateTo }) {
             ${outfit.reasons.map((reason) => `
               <div class="dt-reason-item">
                 <span class="dt-reason-dot is-blue" aria-hidden="true"></span>
-                <span>${reason}</span>
+                <span>${e(reason)}</span>
               </div>
             `).join('')}
 
             ${(outfit.risks || []).map((risk) => `
               <div class="dt-reason-item is-note">
                 <span class="dt-reason-dot is-lime" aria-hidden="true"></span>
-                <span>${risk.text}</span>
+                <span>${e(risk.text)}</span>
               </div>
             `).join('')}
           </div>
 
           <div class="dt-evidence-card">
             <span class="dt-lime-badge dt-evidence-badge">리뷰 근거</span>
-            <p class="dt-evidence-text">${outfit.reviewEvidence}</p>
+            <p class="dt-evidence-text">${e(outfit.reviewEvidence)}</p>
           </div>
 
           <div class="dt-feedback-row">
@@ -159,9 +162,16 @@ export function renderDetail(container, { navigateTo }) {
 
   container.querySelectorAll('[data-save-outfit]').forEach((button) => {
     button.addEventListener('click', () => {
-      const justSaved = state.toggleSaved(outfit.id);
+      const justSaved = state.toggleSaved(outfit.id, outfit);
       syncDetailSaveControls(container, outfit.id);
       showToast(justSaved ? '코디를 저장했어요.' : '저장을 해제했어요.');
+      persistToggleSaved(outfit, justSaved).then((result) => {
+        if (result.status === 'unauthenticated') {
+          showToast('로그인하면 저장이 동기화돼요.');
+        } else if (result.status === 'api-error') {
+          showToast('저장이 서버에 반영되지 못했어요. 잠시 후 다시 시도해 주세요.');
+        }
+      });
     });
   });
 
@@ -172,7 +182,9 @@ export function renderDetail(container, { navigateTo }) {
 
   container.querySelectorAll('.dt-purchase-btn').forEach((button) => {
     button.addEventListener('click', () => {
-      const product = getProduct(button.dataset.prod);
+      const productId = button.dataset.prod;
+      const item = items.find((entry) => entry.product?.id === productId);
+      const product = item?.product || getMockProduct(productId);
 
       if (product?.purchaseUrl && product.purchaseUrl !== '#') {
         window.open(product.purchaseUrl, '_blank', 'noopener,noreferrer');
@@ -203,13 +215,13 @@ function renderItemCard(item) {
     <article class="dt-item-card pf-card">
       <div class="dt-item-grid">
         <div class="dt-item-media">
-          <img src="${product.image}" alt="${product.name}" loading="lazy" />
-          <span class="dt-item-slot">${SLOT_LABELS[item.slot] || item.slot}</span>
+          <img src="${e(product.image)}" alt="${e(product.name)}" loading="lazy" />
+          <span class="dt-item-slot">${e(SLOT_LABELS[item.slot] || item.slot)}</span>
         </div>
 
         <div class="dt-item-content">
-          <p class="dt-item-brand">${product.brand}</p>
-          <h4 class="dt-item-name">${product.name}</h4>
+          <p class="dt-item-brand">${e(product.brand)}</p>
+          <h4 class="dt-item-name">${e(product.name)}</h4>
 
           <div class="dt-item-price-row">
             <strong class="dt-item-price">${product.price.toLocaleString()}원</strong>
@@ -217,18 +229,20 @@ function renderItemCard(item) {
           </div>
 
           <div class="dt-item-tags">
-            <span class="dt-item-chip">${product.fit}</span>
-            <span class="dt-item-chip">${product.season}</span>
-            <span class="dt-item-chip">두께 ${product.thickness}</span>
+            <span class="dt-item-chip">${e(product.fit)}</span>
+            <span class="dt-item-chip">${e(product.season)}</span>
+            <span class="dt-item-chip">두께 ${e(product.thickness)}</span>
           </div>
 
-          <div class="dt-item-size">
-            <span class="dt-item-size-dot" aria-hidden="true"></span>
-            <span>사이즈 ${product.sizeRun}</span>
-          </div>
+          ${product.sizeRun ? `
+            <div class="dt-item-size">
+              <span class="dt-item-size-dot" aria-hidden="true"></span>
+              <span>사이즈 ${e(product.sizeRun)}</span>
+            </div>
+          ` : ''}
 
           <div class="dt-item-actions">
-            <button type="button" class="dt-purchase-btn" data-prod="${product.id}">
+            <button type="button" class="dt-purchase-btn" data-prod="${e(product.id)}">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
                 <polyline points="15 3 21 3 21 9"/>
@@ -238,7 +252,7 @@ function renderItemCard(item) {
             </button>
 
             ${item.alternatives.length > 0 ? `
-              <button type="button" class="dt-alt-btn" data-slot="${item.slot}" data-count="${item.alternatives.length}">
+              <button type="button" class="dt-alt-btn" data-slot="${e(item.slot)}" data-count="${item.alternatives.length}">
                 대안 ${item.alternatives.length}개
               </button>
             ` : ''}
@@ -247,10 +261,14 @@ function renderItemCard(item) {
       </div>
 
       <div class="dt-item-review">
-        <span class="dt-item-review-quote">“${product.reviewSummary}”</span>
-        <span class="dt-item-review-divider">·</span>
-        <strong>★ ${product.rating}</strong>
-        <span>(${product.reviewCount.toLocaleString()}건)</span>
+        <span class="dt-item-review-quote">${product.reviewSummary ? `“${e(product.reviewSummary)}”` : '리뷰 데이터 부족'}</span>
+        ${product.rating !== null && product.rating !== undefined ? `
+          <span class="dt-item-review-divider">·</span>
+          <strong>★ ${product.rating}</strong>
+        ` : ''}
+        ${product.reviewCount !== null && product.reviewCount !== undefined ? `
+          <span>(${product.reviewCount.toLocaleString()}건)</span>
+        ` : ''}
       </div>
     </article>
   `;
@@ -358,7 +376,17 @@ function showFeedbackSheet() {
   sheet.querySelector('#submit-feedback')?.addEventListener('click', () => {
     if (selected.length > 0) {
       state.addFeedback(selected);
+      const feedbackType = selected.length === 1 ? selected[0] : 'general';
+      const tags = selected.length === 1 ? [] : [...selected];
+      const outfitId = state.get('selectedOutfitId');
       showToast('피드백을 반영해둘게요.');
+      persistFeedback({ outfitId, feedbackType, tags }).then((result) => {
+        if (result.status === 'unauthenticated') {
+          showToast('로그인하면 피드백이 동기화돼요.');
+        } else if (result.status === 'api-error') {
+          showToast('피드백이 서버에 반영되지 못했어요.');
+        }
+      });
     }
 
     closeSheet();

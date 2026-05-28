@@ -5,8 +5,10 @@
 import { SITUATIONS } from '../data/mock.js';
 import { state } from '../utils/state.js';
 import { mountAuthSlot } from '../components/authModal.js';
+import { mountUrlAnalyzer } from '../components/urlAnalyzer.js';
 
 let unmountAuthSlot = null;
+let unmountAnalyzer = null;
 
 export function renderLanding(container) {
   const onboarding = state.get('onboarding');
@@ -123,12 +125,18 @@ export function renderLanding(container) {
         </div>
       </section>
 
+      <section class="lnd-section lnd-section--secondary" aria-label="상품 URL 분석">
+        <div data-url-analyzer-slot></div>
+      </section>
+
       <div class="lnd-bottom-space" aria-hidden="true"></div>
     </div>
   `;
 
   unmountAuthSlot?.();
   unmountAuthSlot = mountAuthSlot(container.querySelector('[data-auth-slot]'));
+  unmountAnalyzer?.();
+  unmountAnalyzer = mountUrlAnalyzer(container.querySelector('[data-url-analyzer-slot]'));
 
   const selectionStatus = container.querySelector('#selection-status');
   const launchStages = [...container.querySelectorAll('.lnd-launch-stage')];

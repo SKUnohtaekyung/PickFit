@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Synthetic Product · PickFit Crawler Fixture</title>
+<meta property="og:title" content="Synthetic Slim Shirt — PickFit Fixture">
+<meta property="og:description" content="Test product page for crawler integration smoke.">
+<meta property="og:image" content="https://example.invalid/og-shirt.webp">
+<meta property="og:price:amount" content="49000">
+<meta property="og:price:currency" content="KRW">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Product",
+  "name": "Synthetic Slim Shirt",
+  "brand": { "@type": "Brand", "name": "PickFit Fixture" },
+  "image": "https://example.invalid/jsonld-shirt.webp",
+  "offers": {
+    "@type": "Offer",
+    "price": "49000",
+    "priceCurrency": "KRW",
+    "availability": "https://schema.org/InStock"
+  }
+}
+</script>
+</head>
+<body>
+<main>
+<h1 itemprop="name">Synthetic Slim Shirt</h1>
+<div class="brand" itemprop="brand">PickFit Fixture</div>
+<div class="price"><span class="price-sale">49,000원</span></div>
+<img src="https://example.invalid/visible-shirt.webp" alt="Synthetic Slim Shirt">
+<p class="description">A synthetic test product for unit-testing the crawler's generic adapter. Lightweight cotton blend. Slim fit. Spring/Fall.</p>
+</main>
+</body>
+</html>

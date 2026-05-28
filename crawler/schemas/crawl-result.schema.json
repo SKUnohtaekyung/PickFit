@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "PickFit crawl result",
+  "description": "Single-document stdout payload emitted by crawler/playwright-crawl.js. Either ok=true with extraction data or ok=false with an error code.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["ok", "url", "finalUrl", "domain", "adapter", "extracted", "artifacts"],
+      "additionalProperties": false,
+      "properties": {
+        "ok": { "type": "boolean", "enum": [true] },
+        "url": { "type": "string" },
+        "finalUrl": { "type": "string" },
+        "domain": { "type": "string" },
+        "adapter": { "type": "string" },
+        "title": { "type": ["string", "null"] },
+        "meta": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "description": { "type": ["string", "null"] },
+            "ogTitle": { "type": ["string", "null"] },
+            "ogImage": { "type": ["string", "null"] }
+          }
+        },
+        "extracted": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "productName": { "type": ["string", "null"] },
+            "brandName": { "type": ["string", "null"] },
+            "priceCandidates": { "type": "array", "items": { "type": "number" } },
+            "currencyCandidates": { "type": "array", "items": { "type": "string" } },
+            "imageUrls": { "type": "array", "items": { "type": "string" } },
+            "description": { "type": ["string", "null"] },
+            "text": { "type": "string" }
+          }
+        },
+        "artifacts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "screenshotPath": { "type": ["string", "null"] }
+          }
+        },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["ok", "errorCode", "errorMessage"],
+      "additionalProperties": false,
+      "properties": {
+        "ok": { "type": "boolean", "enum": [false] },
+        "errorCode": {
+          "type": "string",
+          "enum": [
+            "argument_missing",
+            "navigation_timeout",
+            "navigation_failed",
+            "post_navigation_blocked",
+            "extraction_failed",
+            "browser_failed",
+            "screenshot_failed",
+            "unexpected_error"
+          ]
+        },
+        "errorMessage": { "type": "string" },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  ]
+}

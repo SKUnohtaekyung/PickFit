@@ -3,8 +3,11 @@
 // ========================================
 
 import { state } from '../utils/state.js';
-import { OUTFITS, getOutfit } from '../data/mock.js';
+import { OUTFITS } from '../data/mock.js';
 import { showToast, staggerChildren } from '../utils/animations.js';
+import { persistFeedback, persistToggleSaved, syncSavedFromApi } from '../api/userActions.js';
+import { resolveOutfitFromSaved } from '../utils/resolvers.js';
+import { escapeHtml as ee } from '../utils/escape.js';
 
 const FEEDBACK_CHIPS = [
   { id: 'liked', emoji: '👍', label: '좋았어요' },
@@ -18,9 +21,18 @@ const FEEDBACK_CHIPS = [
 ];
 
 export function renderSaved(container, { navigateTo }) {
+  renderSavedView(container, { navigateTo });
+  syncSavedFromApi().then((result) => {
+    if (result.source === 'api') {
+      renderSavedView(container, { navigateTo });
+    }
+  }).catch(() => {});
+}
+
+function renderSavedView(container, { navigateTo }) {
   const savedList = state.get('saved') || [];
   const savedOutfits = savedList
-    .map(s => ({ ...s, outfit: getOutfit(s.id) }))
+    .map(s => ({ ...s, outfit: resolveOutfitFromSaved(s) }))
     .filter(s => s.outfit);
 
   let selectedFeedback = [];
@@ -37,7 +49,7 @@ export function renderSaved(container, { navigateTo }) {
         <!-- Saved Outfit Cards -->
         <div id="saved-list" style="display:flex; flex-direction:column; gap:12px; margin-bottom:28px;">
           ${savedOutfits.map(({ outfit, savedAt, id }) => `
-            <div class="pf-card saved-card" style="padding:0; overflow:hidden;" data-outfit="${id}">
+            <div class="pf-card saved-card" style="padding:0; overflow:hidden;" data-outfit="${ee(id)}">
               <div style="display:flex; align-items:center; gap:0;">
                 <!-- Color accent bar -->
                 <div style="width:4px; self-stretch; background:#4D5EFF; border-radius:4px 0 0 4px; min-height:80px; flex-shrink:0; align-self:stretch;"></div>
@@ -45,15 +57,15 @@ export function renderSaved(container, { navigateTo }) {
                 <div style="flex:1; padding:14px 16px;">
                   <div style="display:flex; align-items:start; justify-content:space-between; gap:8px;">
                     <div>
-                      <span style="display:inline-block; background:#EAF0FF; color:#4D5EFF; font-size:11px; font-weight:700; padding:2px 10px; border-radius:999px; margin-bottom:5px;">${outfit.framingLabel}</span>
-                      <p style="font-size:15px; font-weight:700; color:#12141A; margin-bottom:2px;">${outfit.title}</p>
+                      <span style="display:inline-block; background:#EAF0FF; color:#4D5EFF; font-size:11px; font-weight:700; padding:2px 10px; border-radius:999px; margin-bottom:5px;">${ee(outfit.framingLabel)}</span>
+                      <p style="font-size:15px; font-weight:700; color:#12141A; margin-bottom:2px;">${ee(outfit.title)}</p>
                       <p class="text-caption" style="color:#5F6675;">${new Date(savedAt).toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' })} 저장 · ${outfit.totalPrice.toLocaleString()}원</p>
                     </div>
                     <div style="display:flex; gap:4px; flex-shrink:0;">
-                      <button class="view-btn pf-btn-ghost" data-outfit="${id}" style="height:34px; padding:0 10px; font-size:12px; background:#EEF1F6; color:#4D5EFF; border-radius:8px;">
+                      <button class="view-btn pf-btn-ghost" data-outfit="${ee(id)}" style="height:34px; padding:0 10px; font-size:12px; background:#EEF1F6; color:#4D5EFF; border-radius:8px;">
                         보기
                       </button>
-                      <button class="delete-btn" data-outfit="${id}" style="width:34px; height:34px; display:flex; align-items:center; justify-content:center; background:#FDECEC; border:none; border-radius:8px; cursor:pointer; color:#C53B3B; transition:all 0.12s;">
+                      <button class="delete-btn" data-outfit="${ee(id)}" style="width:34px; height:34px; display:flex; align-items:center; justify-content:center; background:#FDECEC; border:none; border-radius:8px; cursor:pointer; color:#C53B3B; transition:all 0.12s;">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="m19 6-.867 12.142A2 2 0 0 1 16.138 20H7.862a2 2 0 0 1-1.995-1.858L5 6"/><path d="M10 11v6M14 11v6"/></svg>
                       </button>
                     </div>
@@ -120,7 +132,9 @@ export function renderSaved(container, { navigateTo }) {
   container.querySelectorAll('.delete-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = btn.dataset.outfit;
-      state.toggleSaved(id); // removes since it's saved
+      const entry = state.findSavedEntry(id);
+      const outfit = entry?.outfit || null;
+      state.toggleSaved(id, outfit); // removes since it's saved
       const card = container.querySelector(`.saved-card[data-outfit="${id}"]`);
       if (card) {
         card.style.transition = 'all 0.2s ease';
@@ -129,13 +143,17 @@ export function renderSaved(container, { navigateTo }) {
         setTimeout(() => {
           card.remove();
           showToast('저장이 해제되었습니다');
-          // Check if empty
           const remaining = container.querySelectorAll('.saved-card');
           if (remaining.length === 0) {
-            renderSaved(container, { navigateTo });
+            renderSavedView(container, { navigateTo });
           }
         }, 200);
       }
+      persistToggleSaved({ id }, false).then((result) => {
+        if (result.status === 'api-error') {
+          showToast('서버 동기화에 실패했어요. 잠시 후 다시 시도해 주세요.');
+        }
+      });
     });
   });
 
@@ -162,6 +180,8 @@ export function renderSaved(container, { navigateTo }) {
 
   submitBtn?.addEventListener('click', () => {
     state.addFeedback(selectedFeedback);
+    const feedbackType = selectedFeedback.length === 1 ? selectedFeedback[0] : 'general';
+    const tags = selectedFeedback.length === 1 ? [] : [...selectedFeedback];
     selectedFeedback = [];
     container.querySelectorAll('.pf-feedback-chip').forEach(c => {
       c.classList.remove('selected');
@@ -169,6 +189,13 @@ export function renderSaved(container, { navigateTo }) {
     });
     submitBtn.disabled = true;
     showToast('피드백 감사해요! 다음 추천에 반영할게요 ✨');
+    persistFeedback({ feedbackType, tags }).then((result) => {
+      if (result.status === 'unauthenticated') {
+        showToast('로그인하면 피드백이 동기화돼요.');
+      } else if (result.status === 'api-error') {
+        showToast('피드백 서버 반영에 실패했어요.');
+      }
+    });
   });
 
   // New recommendation

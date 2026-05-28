@@ -27,6 +27,14 @@ final class Router
         $this->add('POST', $path, $handler);
     }
 
+    /**
+     * @param callable(array<string, string>): Response $handler
+     */
+    public function delete(string $path, callable $handler): void
+    {
+        $this->add('DELETE', $path, $handler);
+    }
+
     public function dispatch(Request $request): ?Response
     {
         foreach ($this->routes[$request->method()] ?? [] as $route) {

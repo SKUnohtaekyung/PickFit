@@ -6,29 +6,49 @@ namespace PickFit;
 
 use PickFit\Controllers\CatalogController;
 use PickFit\Controllers\AuthController;
+use PickFit\Controllers\RecommendationController;
+use PickFit\Controllers\UserActionController;
 use PickFit\Http\Request;
 use PickFit\Http\Response;
 use PickFit\Http\Router;
+use PickFit\Repositories\CrawlJobRepository;
+use PickFit\Repositories\FeedbackRepository;
 use PickFit\Repositories\ProductRepository;
+use PickFit\Repositories\RecommendationRepository;
+use PickFit\Repositories\SavedOutfitRepository;
 use PickFit\Repositories\UserRepository;
 use PickFit\Services\AuthService;
+use PickFit\Services\CrawlerService;
 use PickFit\Services\CsrfService;
+use PickFit\Services\OpenAIService;
 use PickFit\Services\RateLimiter;
+use PickFit\Services\RecommendationService;
+use PickFit\Services\UrlSafetyService;
+use PickFit\Support\ResponseValidator;
 use PDOException;
 
 final class Bootstrap
 {
+    private ?Database $database = null;
+
     public function __construct(
         private readonly Config $config,
+        private readonly string $projectRoot,
         private readonly string $publicPath,
         private readonly string $storagePath,
     ) {
+    }
+
+    private function database(): Database
+    {
+        return $this->database ??= new Database($this->config);
     }
 
     public static function create(string $projectRoot): self
     {
         return new self(
             Config::fromEnvironment($projectRoot),
+            $projectRoot,
             $projectRoot . DIRECTORY_SEPARATOR . 'public',
             $projectRoot . DIRECTORY_SEPARATOR . 'storage',
         );
@@ -89,6 +109,81 @@ final class Bootstrap
         ));
         $router->get('/api/products/{id}', fn (array $params): Response => $this->withCatalog(
             fn (CatalogController $catalog): Response => $catalog->show($params['id']),
+        ));
+        $router->post('/api/catalog/analyze-url', fn (array $_): Response => $this->withCsrfProtection(
+            $request,
+            $csrf,
+            fn (): Response => $this->withCrawlRateLimit(
+                $request,
+                fn (): Response => $this->withAuthenticatedUser(
+                    fn (array $sessionUser): Response => $this->withCrawlerCatalog(
+                        fn (CatalogController $catalog): Response => $catalog->analyzeUrl($request, $sessionUser),
+                    ),
+                ),
+            ),
+        ));
+        $router->get('/api/catalog/crawl-jobs/{id}', fn (array $params): Response => $this->withSession(
+            fn (): Response => $this->withAuthenticatedUser(
+                fn (array $sessionUser): Response => $this->withCrawlerCatalog(
+                    fn (CatalogController $catalog): Response => $catalog->showCrawlJob($params['id'], $sessionUser),
+                ),
+            ),
+        ));
+        $router->post('/api/recommendations', fn (array $_): Response => $this->withCsrfProtection(
+            $request,
+            $csrf,
+            fn (): Response => $this->withRecommendationRateLimit(
+                $request,
+                fn (): Response => $this->withAuthenticatedUser(
+                    fn (array $sessionUser): Response => $this->withRecommendations(
+                        fn (RecommendationController $recommendations): Response
+                            => $recommendations->create($request, $sessionUser),
+                    ),
+                ),
+            ),
+        ));
+        $router->get('/api/recommendations/{id}', fn (array $params): Response => $this->withSession(
+            fn (): Response => $this->withAuthenticatedUser(
+                fn (array $sessionUser): Response => $this->withRecommendations(
+                    fn (RecommendationController $recommendations): Response
+                        => $recommendations->show($params['id'], $sessionUser),
+                ),
+            ),
+        ));
+        $router->get('/api/saved-outfits', fn (array $_): Response => $this->withSession(
+            fn (): Response => $this->withAuthenticatedUser(
+                fn (array $sessionUser): Response => $this->withUserActions(
+                    fn (UserActionController $actions): Response => $actions->listSaved($sessionUser),
+                ),
+            ),
+        ));
+        $router->post('/api/saved-outfits', fn (array $_): Response => $this->withCsrfProtection(
+            $request,
+            $csrf,
+            fn (): Response => $this->withAuthenticatedUser(
+                fn (array $sessionUser): Response => $this->withUserActions(
+                    fn (UserActionController $actions): Response => $actions->save($request, $sessionUser),
+                ),
+            ),
+        ));
+        $router->delete('/api/saved-outfits/{id}', fn (array $params): Response => $this->withCsrfProtection(
+            $request,
+            $csrf,
+            fn (): Response => $this->withAuthenticatedUser(
+                fn (array $sessionUser): Response => $this->withUserActions(
+                    fn (UserActionController $actions): Response
+                        => $actions->deleteSaved($params['id'], $sessionUser),
+                ),
+            ),
+        ));
+        $router->post('/api/feedback', fn (array $_): Response => $this->withCsrfProtection(
+            $request,
+            $csrf,
+            fn (): Response => $this->withAuthenticatedUser(
+                fn (array $sessionUser): Response => $this->withUserActions(
+                    fn (UserActionController $actions): Response => $actions->submitFeedback($request, $sessionUser),
+                ),
+            ),
         ));
 
         $response = $router->dispatch($request);
@@ -172,7 +267,7 @@ final class Bootstrap
     {
         return new CatalogController(
             new ProductRepository(
-                (new Database($this->config))->pdo(),
+                $this->database()->pdo(),
             ),
         );
     }
@@ -182,7 +277,7 @@ final class Bootstrap
         return new AuthController(
             new AuthService(
                 new UserRepository(
-                    (new Database($this->config))->pdo(),
+                    $this->database()->pdo(),
                 ),
             ),
         );
@@ -195,6 +290,139 @@ final class Bootstrap
             max(0, (int) ($this->config->get('RATE_LIMIT_AUTH_PER_HOUR', '20') ?? '20')),
             3600,
         );
+    }
+
+    private function recommendationRateLimiter(): RateLimiter
+    {
+        return new RateLimiter(
+            $this->storagePath . DIRECTORY_SEPARATOR . 'rate-limits',
+            max(0, (int) ($this->config->get('RATE_LIMIT_RECOMMEND_PER_HOUR', '20') ?? '20')),
+            3600,
+        );
+    }
+
+    /**
+     * @param callable(): Response $handler
+     */
+    private function withRecommendationRateLimit(Request $request, callable $handler): Response
+    {
+        if (!$this->recommendationRateLimiter()->allow('rec:' . $request->clientIp())) {
+            return $this->jsonError('rate_limited', 'Too many recommendation requests. Please wait before trying again.', 429);
+        }
+        return $handler();
+    }
+
+    private function crawlRateLimiter(): RateLimiter
+    {
+        return new RateLimiter(
+            $this->storagePath . DIRECTORY_SEPARATOR . 'rate-limits',
+            max(0, (int) ($this->config->get('RATE_LIMIT_CRAWL_PER_HOUR', '10') ?? '10')),
+            3600,
+        );
+    }
+
+    /**
+     * @param callable(): Response $handler
+     */
+    private function withCrawlRateLimit(Request $request, callable $handler): Response
+    {
+        if (!$this->crawlRateLimiter()->allow('crawl:' . $request->clientIp())) {
+            return $this->jsonError('rate_limited', 'URL 분석 요청이 많아요. 잠시 후 다시 시도해 주세요.', 429);
+        }
+        return $handler();
+    }
+
+    /**
+     * @param callable(array<string, mixed>): Response $handler
+     */
+    private function withAuthenticatedUser(callable $handler): Response
+    {
+        $this->startSession();
+        $sessionUser = $_SESSION['auth_user'] ?? null;
+        if (!is_array($sessionUser) || !isset($sessionUser['userId'])) {
+            return $this->jsonError('unauthenticated', 'Login required.', 401);
+        }
+        return $handler($sessionUser);
+    }
+
+    private function recommendations(): RecommendationController
+    {
+        $pdo = $this->database()->pdo();
+        return new RecommendationController(
+            new RecommendationService(
+                new ProductRepository($pdo),
+                new RecommendationRepository($pdo),
+                $this->openAiService(),
+                new ResponseValidator(),
+                $this->loadSchema('recommendation'),
+            ),
+        );
+    }
+
+    private function openAiService(): OpenAIService
+    {
+        $caCertPath = $this->storagePath . DIRECTORY_SEPARATOR . 'certs' . DIRECTORY_SEPARATOR . 'cacert.pem';
+        return new OpenAIService(
+            $this->config,
+            $this->projectRoot . DIRECTORY_SEPARATOR . 'src' . DIRECTORY_SEPARATOR . 'Support' . DIRECTORY_SEPARATOR . 'prompts',
+            $this->storagePath . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR . 'openai',
+            is_file($caCertPath) ? $caCertPath : null,
+        );
+    }
+
+    private function loadSchema(string $name): string
+    {
+        $path = $this->projectRoot
+            . DIRECTORY_SEPARATOR . 'src'
+            . DIRECTORY_SEPARATOR . 'Support'
+            . DIRECTORY_SEPARATOR . 'schemas'
+            . DIRECTORY_SEPARATOR . $name . '.schema.json';
+        if (!is_file($path)) {
+            return '';
+        }
+        $content = @file_get_contents($path);
+        return is_string($content) ? $content : '';
+    }
+
+    /**
+     * @param callable(RecommendationController): Response $handler
+     */
+    private function withRecommendations(callable $handler): Response
+    {
+        try {
+            return $handler($this->recommendations());
+        } catch (PDOException) {
+            return $this->jsonError(
+                'database_unavailable',
+                'Recommendation database is unavailable. Start MySQL and apply the migration files.',
+                503,
+            );
+        }
+    }
+
+    private function userActions(): UserActionController
+    {
+        $pdo = $this->database()->pdo();
+        return new UserActionController(
+            new SavedOutfitRepository($pdo),
+            new FeedbackRepository($pdo),
+        );
+    }
+
+    /**
+     * @param callable(UserActionController): Response $handler
+     */
+    private function withUserActions(callable $handler): Response
+    {
+        try {
+            return $handler($this->userActions());
+        } catch (PDOException) {
+            return $this->jsonError(
+                'database_unavailable',
+                'User action database is unavailable. Start MySQL and apply the migration files.',
+                503,
+            );
+        }
     }
 
     /**
@@ -247,6 +475,40 @@ final class Bootstrap
                     'message' => 'Catalog database is unavailable. Start MySQL and apply the migration and seed files.',
                 ],
             ], 503);
+        }
+    }
+
+    private function crawlerCatalog(): CatalogController
+    {
+        $pdo = $this->database()->pdo();
+        $products = new ProductRepository($pdo);
+        $crawler = new CrawlerService(
+            new UrlSafetyService(),
+            new CrawlJobRepository($pdo),
+            $products,
+            $this->config,
+            $this->projectRoot,
+            $this->storagePath,
+            $this->openAiService(),
+            new ResponseValidator(),
+            $this->loadSchema('product_extraction'),
+        );
+        return new CatalogController($products, $crawler);
+    }
+
+    /**
+     * @param callable(CatalogController): Response $handler
+     */
+    private function withCrawlerCatalog(callable $handler): Response
+    {
+        try {
+            return $handler($this->crawlerCatalog());
+        } catch (PDOException) {
+            return $this->jsonError(
+                'database_unavailable',
+                'Crawl database is unavailable. Start MySQL and apply the migration files.',
+                503,
+            );
         }
     }
 

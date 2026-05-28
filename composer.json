@@ -5,14 +5,32 @@
   "require": {
     "php": ">=8.2"
   },
+  "require-dev": {
+    "phpunit/phpunit": "^11.0"
+  },
   "autoload": {
     "psr-4": {
       "PickFit\\": "src/"
     }
   },
+  "autoload-dev": {
+    "psr-4": {
+      "PickFit\\Tests\\": "tests/"
+    }
+  },
   "scripts": {
     "test": [
-      "@php -l public/index.php"
+      "@php -l public/index.php",
+      "@php vendor/bin/phpunit --testsuite=Unit"
+    ],
+    "test:all": [
+      "@php vendor/bin/phpunit"
+    ],
+    "test:unit": [
+      "@php vendor/bin/phpunit --testsuite=Unit"
+    ],
+    "test:feature": [
+      "@php vendor/bin/phpunit --testsuite=Feature"
     ]
   }
 }

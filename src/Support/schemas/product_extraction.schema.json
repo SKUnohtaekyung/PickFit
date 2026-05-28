@@ -1,0 +1,125 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "productName",
+    "brandName",
+    "categoryMain",
+    "categorySub",
+    "priceSale",
+    "currency",
+    "fitType",
+    "materialMain",
+    "materialSub",
+    "thickness",
+    "opacity",
+    "stretch",
+    "colorFamily",
+    "seasonality",
+    "styleTags",
+    "occasionTags",
+    "shippingSummary",
+    "returnSummary",
+    "reviewSummary",
+    "riskFlags",
+    "confidence",
+    "missingFields",
+    "warnings"
+  ],
+  "properties": {
+    "productName": {
+      "type": ["string", "null"]
+    },
+    "brandName": {
+      "type": ["string", "null"]
+    },
+    "categoryMain": {
+      "type": "string",
+      "enum": ["top", "bottom", "outer", "shoes", "accessory", "unknown"]
+    },
+    "categorySub": {
+      "type": ["string", "null"]
+    },
+    "priceSale": {
+      "type": ["integer", "null"]
+    },
+    "currency": {
+      "type": "string",
+      "enum": ["KRW", "USD", "JPY", "EUR", "UNKNOWN"]
+    },
+    "fitType": {
+      "type": "string",
+      "enum": ["slim", "regular", "oversized", "relaxed", "straight", "wide", "unknown"]
+    },
+    "materialMain": {
+      "type": ["string", "null"]
+    },
+    "materialSub": {
+      "type": ["string", "null"]
+    },
+    "thickness": {
+      "type": "string",
+      "enum": ["light", "medium", "heavy", "unknown"]
+    },
+    "opacity": {
+      "type": "string",
+      "enum": ["sheer", "semi", "opaque", "unknown"]
+    },
+    "stretch": {
+      "type": "string",
+      "enum": ["none", "low", "medium", "high", "unknown"]
+    },
+    "colorFamily": {
+      "type": ["string", "null"]
+    },
+    "seasonality": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["spring", "summer", "fall", "winter"]
+      }
+    },
+    "styleTags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "occasionTags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "shippingSummary": {
+      "type": ["string", "null"]
+    },
+    "returnSummary": {
+      "type": ["string", "null"]
+    },
+    "reviewSummary": {
+      "type": ["string", "null"]
+    },
+    "riskFlags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "confidence": {
+      "type": "number"
+    },
+    "missingFields": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

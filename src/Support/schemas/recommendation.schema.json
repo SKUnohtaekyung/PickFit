@@ -1,0 +1,125 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["confidence", "globalWarnings", "outfits"],
+  "properties": {
+    "confidence": {
+      "type": "number"
+    },
+    "globalWarnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "outfits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rank",
+          "title",
+          "framingLabel",
+          "summary",
+          "productIdsBySlot",
+          "alternativeProductIdsBySlot",
+          "reasons",
+          "risks",
+          "reviewEvidence",
+          "comparison",
+          "confidence"
+        ],
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "enum": [1, 2, 3]
+          },
+          "title": {
+            "type": "string"
+          },
+          "framingLabel": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "productIdsBySlot": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["top", "bottom", "outer", "shoes"],
+            "properties": {
+              "top": { "type": ["string", "null"] },
+              "bottom": { "type": ["string", "null"] },
+              "outer": { "type": ["string", "null"] },
+              "shoes": { "type": ["string", "null"] }
+            }
+          },
+          "alternativeProductIdsBySlot": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["top", "bottom", "outer", "shoes"],
+            "properties": {
+              "top": { "type": "array", "items": { "type": "string" } },
+              "bottom": { "type": "array", "items": { "type": "string" } },
+              "outer": { "type": "array", "items": { "type": "string" } },
+              "shoes": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "reasons": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "risks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "text"],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["info", "warning", "low_confidence"]
+                },
+                "text": { "type": "string" }
+              }
+            }
+          },
+          "reviewEvidence": {
+            "type": "string"
+          },
+          "comparison": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "price",
+              "fit",
+              "material",
+              "season",
+              "shipping",
+              "returnFee",
+              "reviewSummary",
+              "fitRisk"
+            ],
+            "properties": {
+              "price": { "type": "string" },
+              "fit": { "type": "string" },
+              "material": { "type": "string" },
+              "season": { "type": "string" },
+              "shipping": { "type": "string" },
+              "returnFee": { "type": "string" },
+              "reviewSummary": { "type": "string" },
+              "fitRisk": {
+                "type": "string",
+                "enum": ["낮음", "중간", "높음", "정보부족"]
+              }
+            }
+          },
+          "confidence": {
+            "type": "number"
+          }
+        }
+      }
+    }
+  }
+}

@@ -6,11 +6,10 @@ namespace PickFit\Repositories;
 
 use PDO;
 use PDOException;
+use PickFit\Support\PublicId;
 
 final class UserRepository
 {
-    private const CROCKFORD_BASE32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
-
     public function __construct(private readonly PDO $pdo)
     {
     }
@@ -21,7 +20,7 @@ final class UserRepository
     public function create(string $email, string $passwordHash, ?string $displayName): array
     {
         for ($attempt = 0; $attempt < 3; $attempt++) {
-            $publicId = self::generatePublicId();
+            $publicId = PublicId::generate();
 
             try {
                 $statement = $this->pdo->prepare(
@@ -87,30 +86,6 @@ final class UserRepository
     {
         $statement = $this->pdo->prepare('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = :id');
         $statement->execute(['id' => $id]);
-    }
-
-    private static function generatePublicId(): string
-    {
-        $alphabet = self::CROCKFORD_BASE32;
-        $time = (int) floor(microtime(true) * 1000);
-        $timeChars = '';
-
-        for ($index = 0; $index < 10; $index++) {
-            $timeChars = $alphabet[$time % 32] . $timeChars;
-            $time = intdiv($time, 32);
-        }
-
-        $randomBits = '';
-        foreach (str_split(random_bytes(10)) as $byte) {
-            $randomBits .= str_pad(decbin(ord($byte)), 8, '0', STR_PAD_LEFT);
-        }
-
-        $randomChars = '';
-        for ($index = 0; $index < 16; $index++) {
-            $randomChars .= $alphabet[bindec(substr($randomBits, $index * 5, 5))];
-        }
-
-        return $timeChars . $randomChars;
     }
 
     /**

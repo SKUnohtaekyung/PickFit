@@ -3,8 +3,10 @@
 // ========================================
 
 import { state } from '../utils/state.js';
-import { OUTFITS, getOutfit } from '../data/mock.js';
+import { OUTFITS } from '../data/mock.js';
 import { staggerChildren } from '../utils/animations.js';
+import { resolveOutfit } from '../utils/resolvers.js';
+import { escapeHtml as e } from '../utils/escape.js';
 
 const COMPARE_ROWS = [
   { key: 'price',        label: '가격' },
@@ -46,9 +48,10 @@ function getBestIdx(outfits, key) {
 
 export function renderComparison(container, { navigateTo }) {
   const compareIds = state.get('compareOutfitIds') || [];
+  const recommendations = state.get('recommendations') || [];
   const outfits = compareIds.length
-    ? compareIds.map(id => getOutfit(id)).filter(Boolean)
-    : OUTFITS;
+    ? compareIds.map(id => resolveOutfit(id)).filter(Boolean)
+    : (recommendations.length ? recommendations.slice(0, 3) : OUTFITS);
 
   container.innerHTML = `
     <!-- Top Bar -->
@@ -64,12 +67,11 @@ export function renderComparison(container, { navigateTo }) {
       <div style="display:grid; grid-template-columns:90px repeat(${outfits.length}, 1fr); gap:8px; padding-bottom:12px;">
         <div></div>
         ${outfits.map((outfit, i) => `
-          <button class="outfit-header-btn text-center" data-outfit="${outfit.id}" style="display:flex; flex-direction:column; align-items:center; gap:6px; background:none; border:none; cursor:pointer;">
-            <div style="width:52px; height:52px; border-radius:12px; overflow:hidden; background:#EEF1F6; border:2px solid ${i === 0 ? '#4D5EFF' : '#D9DCE6'}; margin:0 auto;">
-              <img src="${getOutfit(outfit.id)?.items?.[0] ? '' : ''}" alt="" style="width:100%; height:100%; object-fit:cover;" />
-              <div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:24px; margin-top:-52px;">${['👔','🧥','👕'][i]}</div>
+          <button class="outfit-header-btn text-center" data-outfit="${e(outfit.id)}" style="display:flex; flex-direction:column; align-items:center; gap:6px; background:none; border:none; cursor:pointer;">
+            <div style="width:52px; height:52px; border-radius:12px; overflow:hidden; background:#EEF1F6; border:2px solid ${i === 0 ? '#4D5EFF' : '#D9DCE6'}; margin:0 auto; position:relative;">
+              <div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:24px;">${['👔','🧥','👕'][i]}</div>
             </div>
-            <span class="text-label" style="color:${i === 0 ? '#4D5EFF' : '#12141A'}; font-size:11px; line-height:1.3; text-align:center;">${outfit.title}</span>
+            <span class="text-label" style="color:${i === 0 ? '#4D5EFF' : '#12141A'}; font-size:11px; line-height:1.3; text-align:center;">${e(outfit.title)}</span>
           </button>
         `).join('')}
       </div>
@@ -81,7 +83,7 @@ export function renderComparison(container, { navigateTo }) {
         const bestIdx = getBestIdx(outfits, row.key);
         return `
           <div style="display:grid; grid-template-columns:90px repeat(${outfits.length}, 1fr); min-height:52px; align-items:start; padding:10px 0; border-bottom:1px solid #EEF1F6;">
-            <div style="padding:2px 0; color:#5F6675; font-size:12px; font-weight:600; padding-top:6px;">${row.label}</div>
+            <div style="padding:2px 0; color:#5F6675; font-size:12px; font-weight:600; padding-top:6px;">${e(row.label)}</div>
             ${outfits.map((outfit, i) => {
               const val = outfit.comparison[row.key] || '—';
               const isBest = bestIdx === i;
@@ -89,7 +91,7 @@ export function renderComparison(container, { navigateTo }) {
               return `
                 <div style="text-align:center; padding:0 4px;">
                   <div style="font-size:13px; font-weight:${isBest ? '700' : '500'}; color:${isRisk ? '#B7791F' : '#12141A'}; line-height:1.4;">
-                    ${isRisk ? '⚠️ ' : ''}${val}
+                    ${isRisk ? '⚠️ ' : ''}${e(val)}
                   </div>
                   ${isBest ? `<span class="pf-best-badge">✓ Best</span>` : ''}
                 </div>
@@ -104,8 +106,8 @@ export function renderComparison(container, { navigateTo }) {
     <div style="position:fixed; bottom:64px; left:50%; transform:translateX(-50%); width:100%; max-width:480px; padding:0 16px 12px; background:linear-gradient(to top, #F7F8FC 70%, transparent);">
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
         ${outfits.slice(0, 2).map(outfit => `
-          <button class="go-detail-btn pf-btn-secondary" data-outfit="${outfit.id}" style="height:48px; font-size:13px;">
-            ${outfit.title.length > 8 ? outfit.title.substring(0, 8) + '…' : outfit.title}
+          <button class="go-detail-btn pf-btn-secondary" data-outfit="${e(outfit.id)}" style="height:48px; font-size:13px;">
+            ${e(outfit.title.length > 8 ? outfit.title.substring(0, 8) + '…' : outfit.title)}
           </button>
         `).join('')}
       </div>

@@ -3,11 +3,16 @@
 // ========================================
 
 import { apiRequest } from './client.js';
+import { endpointStatus } from './contracts.js';
+import { adaptSavedOutfitEntry } from './recommendationAdapter.js';
+
+export const savedOutfitApiStatus = endpointStatus('savedOutfits');
+export const feedbackApiStatus = endpointStatus('feedback');
 
 export async function listSavedOutfits() {
   const payload = await apiRequest('/api/saved-outfits');
-
-  return payload.data?.savedOutfits || [];
+  const entries = payload.data?.savedOutfits || [];
+  return entries.map(adaptSavedOutfitEntry);
 }
 
 export async function saveOutfit(outfitId) {
@@ -19,11 +24,11 @@ export async function saveOutfit(outfitId) {
     },
   });
 
-  return payload.data || null;
+  return payload.data?.savedOutfit || null;
 }
 
-export async function deleteSavedOutfit(savedOutfitId) {
-  const payload = await apiRequest(`/api/saved-outfits/${encodeURIComponent(savedOutfitId)}`, {
+export async function deleteSavedOutfit(outfitId) {
+  const payload = await apiRequest(`/api/saved-outfits/${encodeURIComponent(outfitId)}`, {
     method: 'DELETE',
     csrf: true,
   });
@@ -31,7 +36,7 @@ export async function deleteSavedOutfit(savedOutfitId) {
   return payload.data || {};
 }
 
-export async function submitFeedback({ outfitId, productId = null, feedbackType, tags = [], note = '' }) {
+export async function submitFeedback({ outfitId = null, productId = null, feedbackType, tags = [], note = '' }) {
   const payload = await apiRequest('/api/feedback', {
     method: 'POST',
     csrf: true,
@@ -44,5 +49,5 @@ export async function submitFeedback({ outfitId, productId = null, feedbackType,
     },
   });
 
-  return payload.data || null;
+  return payload.data?.feedback || null;
 }

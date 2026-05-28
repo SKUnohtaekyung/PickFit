@@ -8,6 +8,7 @@ vendor/
 !.env.example
 
 # Runtime / generated files
+storage/
 storage/logs/
 storage/crawls/
 storage/cache/
@@ -25,4 +26,8 @@ coverage/
 Thumbs.db
 .vscode/
 .idea/
+
+# PHPUnit
+.phpunit.cache/
+.phpunit.result.cache
 

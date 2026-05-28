@@ -30,9 +30,18 @@ final class Config
 
         $envFileValues = $projectRoot === null ? [] : self::readEnvFile($projectRoot . DIRECTORY_SEPARATOR . '.env');
         $values = [];
+
         foreach ($defaults as $key => $default) {
             $value = getenv($key);
             $values[$key] = $value === false ? ($envFileValues[$key] ?? $default) : (string) $value;
+        }
+
+        foreach ($envFileValues as $key => $value) {
+            if (array_key_exists($key, $values)) {
+                continue;
+            }
+            $processValue = getenv($key);
+            $values[$key] = $processValue === false ? (string) $value : (string) $processValue;
         }
 
         return new self($values);
@@ -74,5 +83,30 @@ final class Config
     public function isLocal(): bool
     {
         return $this->get('APP_ENV') === 'local';
+    }
+
+    public function openAiApiKey(): ?string
+    {
+        $value = $this->get('OPENAI_API_KEY');
+        return $value === null || $value === '' ? null : $value;
+    }
+
+    public function openAiModel(): ?string
+    {
+        $value = $this->get('OPENAI_MODEL');
+        return $value === null || $value === '' ? null : $value;
+    }
+
+    public function openAiTimeoutSeconds(): int
+    {
+        $value = $this->get('OPENAI_TIMEOUT_SECONDS', '60') ?? '60';
+        $parsed = (int) $value;
+        return $parsed > 0 ? $parsed : 60;
+    }
+
+    public function openAiExtractionEnabled(): bool
+    {
+        $value = $this->get('OPENAI_EXTRACTION_ENABLED', 'false') ?? 'false';
+        return filter_var($value, FILTER_VALIDATE_BOOLEAN);
     }
 }
