@@ -8,6 +8,9 @@
    - rank 2: 체형/핏 안전 우선(body-type-focused)
    - rank 3: 가성비 우선(value-focused)
 4. 각 outfit은 top + bottom + shoes를 반드시 포함하세요. outer는 계절/상황에 맞을 때만 추가하세요. 슬롯은 top/bottom/outer/shoes 네 가지로 한정되어 있습니다 (accessory는 다루지 않습니다).
+4-1. 한 outfit 안에서 같은 product id를 두 개 이상의 슬롯에 넣지 마세요. 같은 상품이 top과 bottom에 동시에 들어가면 응답이 거절됩니다. 슬롯마다 서로 다른 상품을 고르세요.
+4-2. 각 슬롯에는 그 슬롯 카테고리의 상품만 넣으세요(top 슬롯=top 카테고리 상품, bottom=bottom, outer=outer, shoes=shoes). 카테고리가 어긋나면 거절됩니다.
+4-3. 3개의 outfit은 가능한 한 서로 다른 상품으로 구성하세요. 같은 상품이 여러 outfit에 반복되지 않도록 다양하게 고르세요.
 5. title, framingLabel, summary, reasons, risks.text, reviewEvidence, comparison.*은 모두 **한국어**로 작성하세요. 영문 혼용 금지.
 5. reasons는 2~4개. 사용자 조건과 candidates의 구체 속성을 직접 연결하세요(예: "office 상황에 맞는 슬랙스", "린넨 소재로 여름 통기성 확보"). 마케팅 일반 카피 금지.
 6. risks는 데이터 부족이나 핏 불확실성을 솔직히 기록. type은 info/warning/low_confidence 중 하나.

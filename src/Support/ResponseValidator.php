@@ -207,6 +207,7 @@ final class ResponseValidator
         if (!is_array($primary)) {
             return $this->fail('schema_type_mismatch', "outfits[$index].productIdsBySlot");
         }
+        $seenPrimary = [];
         foreach (self::SLOTS as $slot) {
             if (!array_key_exists($slot, $primary)) {
                 return $this->fail('schema_missing_field', "outfits[$index].productIdsBySlot.$slot");
@@ -215,8 +216,16 @@ final class ResponseValidator
             if ($id !== null && !is_string($id)) {
                 return $this->fail('schema_type_mismatch', "outfits[$index].productIdsBySlot.$slot");
             }
-            if (is_string($id) && !isset($candidateSet[$id])) {
-                return $this->fail('unknown_product_id', $id);
+            if (is_string($id)) {
+                if (!isset($candidateSet[$id])) {
+                    return $this->fail('unknown_product_id', $id);
+                }
+                // One product per slot: the same id must not fill two slots of a
+                // single outfit (would surface as a duplicate top/bottom in the UI).
+                if (isset($seenPrimary[$id])) {
+                    return $this->fail('duplicate_product_in_outfit', "outfits[$index].$id");
+                }
+                $seenPrimary[$id] = true;
             }
         }
 

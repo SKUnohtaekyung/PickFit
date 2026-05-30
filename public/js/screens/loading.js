@@ -7,6 +7,7 @@ import { createRecommendationRun } from '../api/recommendations.js';
 import { adaptRecommendationResponse } from '../api/recommendationAdapter.js';
 import { ApiError, apiErrorMessage } from '../api/client.js';
 import { showToast } from '../utils/animations.js';
+import { getSourceProductIds } from '../utils/sourceProducts.js';
 
 const LOADING_STEPS = [
   { label: '조건 정리 중…', duration: 1400 },
@@ -35,7 +36,7 @@ export function renderLoading(container, { navigateTo }) {
         </div>
 
         <div class="ldg-hero">
-          <span class="ldg-eyebrow">AI Analysis in progress</span>
+          <span class="ldg-eyebrow">추천 코디를 준비하고 있어요</span>
           <h1 class="ldg-title">
             <span class="ldg-title-line">조건에 맞는</span>
             <span class="ldg-title-line">최적의 코디를</span>
@@ -46,7 +47,7 @@ export function renderLoading(container, { navigateTo }) {
 
         <div class="pf-card ldg-card">
           <div class="ldg-card-head">
-             <span class="ldg-card-kicker">AI STATUS</span>
+             <span class="ldg-card-kicker">준비 현황</span>
              <span id="loading-pct" class="ldg-card-pct">0%</span>
           </div>
 
@@ -76,9 +77,17 @@ export function renderLoading(container, { navigateTo }) {
             </div>
           </div>
         ` : ''}
+
+        <button type="button" class="ldg-cancel" id="loading-cancel">취소하고 조건 수정</button>
       </div>
     </div>
   `;
+
+  // Escape hatch: the loading screen hides the bottom nav, so this is the only
+  // way out if the recommendation request hangs. Always available.
+  container.querySelector('#loading-cancel')?.addEventListener('click', () => {
+    navigateTo('onboarding');
+  });
 
   // Run loading animation
   runLoadingSequence(container, navigateTo, ob);
@@ -88,92 +97,187 @@ function pendingIcon() {
   return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9" stroke-dasharray="3 3"/></svg>`;
 }
 
+// Icons inherit color from the tokenized parent (.pf-step-item.active →
+// --pf-cta-blue, .completed → --pf-success) via currentColor — no off-system
+// hex literals (design_system.md §18.1).
 function activeIcon() {
-  return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4D5EFF" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>`;
+  return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>`;
 }
 
 function doneIcon() {
-  return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1F8A4D" stroke-width="2.5"><circle cx="12" cy="12" r="10" fill="#EAF7EF" stroke="#1F8A4D"/><polyline points="9 12 11 14 15 10"/></svg>`;
+  return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>`;
 }
 
 async function runLoadingSequence(container, navigateTo, ob) {
   const progressBar = container.querySelector('#loading-progress');
+  const pctEl = container.querySelector('#loading-pct');
   const subtitle = container.querySelector('#loading-subtitle');
-  let elapsed = 0;
-  const total = LOADING_STEPS.reduce((sum, s) => sum + s.duration, 0) + 1000;
+  const stepEls = LOADING_STEPS.map((_, i) => container.querySelector(`#step-${i}`));
 
+  // Fire the real request immediately — the bar tracks ITS lifecycle, not a
+  // pre-baked timeline. settled flips the moment the response (success or error)
+  // arrives. requestRecommendations never rejects, so the 2nd handler is defensive.
   const apiPromise = requestRecommendations(ob);
+  let settled = false;
+  apiPromise.then(() => { settled = true; }, () => { settled = true; });
 
-  for (let i = 0; i < LOADING_STEPS.length; i++) {
-    const step = LOADING_STEPS[i];
-    const stepEl = container.querySelector(`#step-${i}`);
-    if (!stepEl) break;
+  // Honest progress: creep toward 90% while in flight, slowing as it nears the
+  // cap so it never "completes" before the response; snap to 100% on arrival.
+  let progress = 6;
+  paint(progress);
 
-    stepEl.className = 'pf-step-item ldg-step active';
-    stepEl.style.transform = 'translateX(4px)';
-    stepEl.querySelector('.ldg-step-label').style.color = 'var(--pf-ink)';
-    stepEl.querySelector('.pf-step-icon').innerHTML = activeIcon();
-    subtitle.textContent = step.label;
-
-    elapsed += step.duration;
-    const pct = Math.round((elapsed / total) * 90);
-    if (progressBar) progressBar.style.width = `${pct}%`;
-    const pctEl = container.querySelector('#loading-pct');
-    if (pctEl) pctEl.textContent = `${pct}%`;
-
-    await delay(step.duration);
-
-    if (stepEl) {
-      stepEl.className = 'pf-step-item ldg-step completed';
-      stepEl.style.transform = 'translateX(0)';
-      stepEl.querySelector('.pf-step-icon').innerHTML = doneIcon();
+  const ticker = setInterval(() => {
+    if (settled) return;
+    progress += Math.max(0.5, (90 - progress) * 0.07);
+    if (progress >= 90) {
+      progress = 90;
+      progressBar?.classList.add('is-indeterminate');
+      if (subtitle) subtitle.textContent = '거의 다 됐어요. 추천을 마무리하는 중이에요…';
     }
+    paint(progress);
+  }, 180);
+
+  function paint(p) {
+    const v = Math.round(p);
+    if (progressBar) progressBar.style.width = `${v}%`;
+    if (pctEl) pctEl.textContent = `${v}%`;
+    syncSteps(p);
+  }
+
+  // Light up the step list by progress band (cosmetic context, not a clock).
+  function syncSteps(p) {
+    if (progress >= 90) return; // hold the last step active during the wait
+    const cur = p < 25 ? 0 : p < 50 ? 1 : p < 72 ? 2 : 3;
+    stepEls.forEach((el, i) => {
+      if (!el) return;
+      const icon = el.querySelector('.pf-step-icon');
+      const label = el.querySelector('.ldg-step-label');
+      if (i < cur) {
+        el.className = 'pf-step-item ldg-step completed';
+        el.style.transform = 'translateX(0)';
+        if (icon) icon.innerHTML = doneIcon();
+        if (label) label.style.color = '';
+      } else if (i === cur) {
+        el.className = 'pf-step-item ldg-step active';
+        el.style.transform = 'translateX(4px)';
+        if (icon) icon.innerHTML = activeIcon();
+        if (label) label.style.color = 'var(--pf-ink)';
+        if (subtitle) subtitle.textContent = LOADING_STEPS[i].label;
+      } else {
+        el.className = 'pf-step-item ldg-step pending';
+        el.style.transform = '';
+        if (icon) icon.innerHTML = pendingIcon();
+        if (label) label.style.color = '';
+      }
+    });
   }
 
   const apiOutcome = await apiPromise;
+  clearInterval(ticker);
+  progressBar?.classList.remove('is-indeterminate');
 
   if (apiOutcome.status === 'success' && apiOutcome.outfits.length >= 3) {
     if (progressBar) progressBar.style.width = '100%';
+    if (pctEl) pctEl.textContent = '100%';
+    stepEls.forEach((el) => {
+      if (!el) return;
+      el.className = 'pf-step-item ldg-step completed';
+      el.style.transform = 'translateX(0)';
+      el.querySelector('.pf-step-icon').innerHTML = doneIcon();
+    });
     if (subtitle) subtitle.textContent = '3개의 코디를 준비했어요.';
     state.setRecommendations(apiOutcome.outfits, apiOutcome.source);
     state.set('selectedOutfitId', null);
     state.set('compareOutfitIds', []);
     state.set('lastRunId', apiOutcome.runId || null);
-    await delay(700);
+    await delay(650);
     navigateTo('results');
     return;
   }
 
   if (apiOutcome.status === 'unauthenticated') {
-    if (subtitle) subtitle.textContent = '로그인이 필요해요.';
-    showToast('추천을 받으려면 먼저 로그인해 주세요.');
-    await delay(900);
-    navigateTo('landing');
+    // Soft gate: the recommendation step is the auth boundary. Hand off to the
+    // central session-expiry handler (clears cached auth, routes to the auth
+    // screen, and remembers 'loading' as the resume target). The onboarding
+    // draft persists in state, so re-login continues the run.
+    if (subtitle) subtitle.textContent = '로그인하고 이어서 진행해요.';
+    showToast('추천을 받으려면 로그인이 필요해요.');
+    await delay(800);
+    window.dispatchEvent(new CustomEvent('pickfit:session-expired'));
     return;
   }
 
-  if (apiOutcome.status === 'low_coverage') {
-    if (subtitle) subtitle.textContent = '조건과 어울리는 후보가 부족해요.';
-    showToast('조건을 조금 풀어 다시 시도해 주세요.');
-    await delay(900);
-    navigateTo('onboarding');
+  // A genuinely successful run that returned too few outfits is a "not enough
+  // candidates" situation, not a server error — surface it with relax-and-retry.
+  if (apiOutcome.status === 'success' || apiOutcome.status === 'low_coverage') {
+    state.setRecommendations([], 'low_coverage');
+    state.set('lastRunId', null);
+    showLoadingError(container, navigateTo, ob, {
+      subtitle: '조건과 어울리는 후보가 부족해요.',
+      message: '지금 조건에 맞는 코디가 충분하지 않아요. 조건을 조금 풀어서 다시 시도해 보세요.',
+    });
     return;
   }
 
   // §19.4 / §20.0 P1: do NOT silently swap in mock results on API failure —
   // that would lie about success and pollute saved/feedback flows. Surface the
-  // failure and send the user back to onboarding so they can adjust + retry.
-  if (subtitle) subtitle.textContent = '추천을 만들지 못했어요.';
-  showToast(apiOutcome.message || '추천 서버에 잠시 문제가 있어요. 조건을 조금 바꿔서 다시 시도해 주세요.');
+  // failure inline with a user-initiated retry instead of auto-bouncing.
   state.setRecommendations([], 'error');
   state.set('lastRunId', null);
-  await delay(1100);
-  navigateTo('onboarding');
+  showLoadingError(container, navigateTo, ob, {
+    subtitle: '추천을 만들지 못했어요.',
+    message: apiOutcome.message || '추천 서버에 잠시 문제가 있어요. 잠시 후 다시 시도하거나 조건을 바꿔 주세요.',
+  });
+}
+
+// Inline error/recovery card (§15.10) — replaces the steps area with a clear
+// message + a primary "다시 시도" (re-runs the whole sequence) and a secondary
+// "조건 수정". Replaces the previous silent toast-then-auto-redirect behavior.
+function showLoadingError(container, navigateTo, ob, { subtitle, message }) {
+  const card = container.querySelector('.ldg-card');
+  const subtitleEl = container.querySelector('#loading-subtitle');
+  const cancelBtn = container.querySelector('#loading-cancel');
+  if (subtitleEl) subtitleEl.textContent = subtitle;
+  if (cancelBtn) cancelBtn.style.display = 'none';
+
+  if (card) {
+    card.innerHTML = `
+      <div class="ldg-error">
+        <div class="pf-badge-warning ldg-error-badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <span>${escapeText(message)}</span>
+        </div>
+        <div class="ldg-error-actions">
+          <button type="button" class="pf-btn-primary" id="loading-retry">다시 시도</button>
+          <button type="button" class="pf-btn-secondary ldg-error-edit" id="loading-edit">조건 수정</button>
+        </div>
+      </div>
+    `;
+  }
+
+  container.querySelector('#loading-retry')?.addEventListener('click', () => {
+    renderLoading(container, { navigateTo });
+  });
+  container.querySelector('#loading-edit')?.addEventListener('click', () => {
+    navigateTo('onboarding');
+  });
+}
+
+function escapeText(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 async function requestRecommendations(onboarding) {
   try {
-    const response = await createRecommendationRun(buildConditions(onboarding), []);
+    // sourceProductIds: publicIds accumulated by urlAnalyzer.js into
+    // sessionStorage. Backend grants +5 score boost per match in
+    // ProductRepository::scoreCandidate. Explicit read here (instead of letting
+    // recommendations.js silently fall back) so the chain is grep-traceable.
+    const sourceIds = getSourceProductIds();
+    const response = await createRecommendationRun(buildConditions(onboarding), sourceIds);
     const adapted = adaptRecommendationResponse(response);
     return {
       status: 'success',

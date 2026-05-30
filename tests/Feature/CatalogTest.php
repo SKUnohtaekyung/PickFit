@@ -65,12 +65,19 @@ final class CatalogTest extends FeatureTestCase
 
     public function testProductDetailReturnsRichShape(): void
     {
-        $resp = $this->http->get('/api/products/prod-001');
+        // Resolve a real product id from the list rather than a hardcoded seed id —
+        // seed rows can be pruned from the dev catalog, so the detail shape is
+        // asserted against whatever product currently exists.
+        $list = $this->http->get('/api/products?limit=1');
+        $publicId = $list['body']['data']['products'][0]['id'] ?? null;
+        $this->assertIsString($publicId);
+
+        $resp = $this->http->get('/api/products/' . urlencode($publicId));
 
         $this->assertSame(200, $resp['status']);
         $product = $resp['body']['data']['product'] ?? null;
         $this->assertIsArray($product);
-        $this->assertSame('prod-001', $product['id'] ?? null);
+        $this->assertSame($publicId, $product['id'] ?? null);
         $this->assertArrayHasKey('variants', $product);
         $this->assertArrayHasKey('media', $product);
     }

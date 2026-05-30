@@ -109,6 +109,9 @@ final class CrawlerService
             $productId = $this->products->upsertFromCrawl([
                 'sourceUrl' => $finalUrl,
                 'sourceDomain' => $finalValidation['sourceDomain'] ?? $sourceDomain,
+                'originType' => 'user_url',
+                'ownerUserId' => $userId,
+                'crawlJobId' => $jobId,
                 'productName' => $parsed['extracted']['productName'] ?? null,
                 'brandName' => $parsed['extracted']['brandName'] ?? null,
                 'description' => $parsed['extracted']['description'] ?? null,

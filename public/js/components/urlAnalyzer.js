@@ -11,6 +11,7 @@
 import { analyzeUrl, getCrawlJob } from '../api/catalog.js';
 import { ApiError, apiErrorMessage } from '../api/client.js';
 import { getAuthUser, openAuthModal } from './authModal.js';
+import { addSourceProductId, getSourceProductIds } from '../utils/sourceProducts.js';
 
 const POLL_INTERVAL_MS = 1500;
 const POLL_MAX_MS = 30000;
@@ -94,7 +95,7 @@ export function mountUrlAnalyzer(target) {
     status.innerHTML = '';
   };
 
-  const renderSuccess = (job) => {
+  const renderSuccess = (job, accumulatedCount) => {
     result.hidden = false;
     const product = job?.product || {};
     const name = product.productName || '상품 이름 미정';
@@ -103,6 +104,9 @@ export function mountUrlAnalyzer(target) {
     const image = product.heroImageUrl
       ? `<img src="${escape(product.heroImageUrl)}" alt="" class="lnd-analyzer-result-image" loading="lazy" />`
       : '<div class="lnd-analyzer-result-image lnd-analyzer-result-image--empty">이미지 없음</div>';
+    const noteCopy = accumulatedCount > 0
+      ? `추천 후보에 추가됐어요. 분석 누적 ${accumulatedCount}/5건 — 온보딩을 마치면 우선 반영돼요.`
+      : '추천 후보에 추가됐어요. 온보딩을 마치면 추천에 우선 반영돼요.';
     result.innerHTML = `
       <div class="lnd-analyzer-result-card">
         ${image}
@@ -110,7 +114,7 @@ export function mountUrlAnalyzer(target) {
           ${brand}
           <p class="lnd-analyzer-result-name">${escape(name)}</p>
           <p class="lnd-analyzer-result-price">${price}</p>
-          <p class="lnd-analyzer-result-note">추천 후보에 추가됐어요. 온보딩을 마치면 추천에 우선 반영돼요.</p>
+          <p class="lnd-analyzer-result-note">${escape(noteCopy)}</p>
         </div>
       </div>
     `;
@@ -200,7 +204,16 @@ export function mountUrlAnalyzer(target) {
       let job = response.job;
       if (job && (job.status === 'queued' || job.status === 'running')) {
         const polled = await pollJob(job.id);
-        if (polled) job = polled;
+        if (polled) {
+          job = polled;
+        } else {
+          // Polling ended without a terminal status — this is a client-side
+          // timeout (the crawl may still be running), not a definitive
+          // extraction failure. Surface it honestly so the user can re-check.
+          hideStatus();
+          renderFailure('crawl_timeout');
+          return;
+        }
       }
 
       if (!job) {
@@ -213,7 +226,14 @@ export function mountUrlAnalyzer(target) {
         showStatus(steps, steps.length - 1);
         await delay(220);
         hideStatus();
-        renderSuccess(job);
+        // Persist productId into sessionStorage so loading.js can pass it as
+        // sourceProductIds on the next recommendation run (+5 score boost,
+        // ProductRepository::scoreCandidate). FIFO cap of 5; dedup handled.
+        const productId = job?.product?.id;
+        const accumulated = typeof productId === 'string' && productId !== ''
+          ? addSourceProductId(productId)
+          : getSourceProductIds();
+        renderSuccess(job, accumulated.length);
         setHint('완료됐어요. 추천 후보에 반영됐어요.', 'ok');
         input.value = '';
       } else if (job.status === 'blocked') {

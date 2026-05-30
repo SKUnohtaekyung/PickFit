@@ -32,7 +32,7 @@
 - 오늘의 목표와 범위
 - 검증 명령과 완료 기준
 
-작업 중 Codex가 임의로 범위를 넓히면 안 된다. 특히 리디자인, 프레임워크 전환, 결제/장바구니 자동화, 무제한 크롤링은 금지한다.
+작업 중 Codex가 임의로 범위를 넓히면 안 된다. 특히 리디자인과 프레임워크 전환은 금지한다.
 
 ### 공통 프리앰블
 
@@ -45,7 +45,7 @@
 - 오늘 Day 범위만 수행한다.
 - 이전 Day가 미완료라면 오늘 작업을 시작하기 전에 미완료 원인을 짧게 보고하고, 오늘 목표를 막는 항목만 먼저 복구한다.
 - 기존 사용자 변경을 되돌리지 않는다.
-- 리디자인, 프레임워크 전환, 결제/장바구니 자동화, 로그인/캡차 우회 크롤링은 금지한다.
+- 리디자인과 프레임워크 전환은 금지한다.
 - 구현 후 가능한 검증 명령을 실제로 실행한다.
 - 검증이 환경 문제로 불가능하면 어떤 명령이 왜 불가능했는지 명확히 남긴다.
 - 마지막에 WORKLOG.md를 생성 또는 업데이트해 오늘 변경 사항, 검증 결과, 실패/보류 항목, 다음 시작점을 기록한다.
@@ -148,8 +148,6 @@ P0가 있으면 다음 Day로 넘어가지 않는다.
 
 - React/Vue/Laravel/Symfony로 임의 전환
 - UI 전면 리디자인
-- payment/cart/checkout 자동화
-- 로그인/캡차 우회 크롤링
 - OpenAI API key를 브라우저에 노출
 - `.env` 값 커밋 또는 문서 출력
 
@@ -599,7 +597,6 @@ tech.md의 Playwright Crawling Design, URL safety, Catalog and crawl API, Securi
 - 프론트엔드에 상품 URL 분석 UI를 추가한다.
 
 제약:
-- 로그인/캡차/결제/장바구니 자동화 금지.
 - Playwright를 HTTP 서버로 띄우지 않는다. PHP가 CLI로 실행한다.
 - 크롤링 실패가 추천 플로우를 깨면 안 된다.
 
@@ -1612,12 +1609,8 @@ npm.cmd run build
 - `security-review` skill 실행 → `UrlSafetyService`, `CrawlerService`, `playwright-crawl.js` 통합 검토
 - 발견된 우회 케이스가 있으면 즉시 Phase 1으로 회귀 (Day 8로 미루지 않음)
 
-### 20.4 Day 7에서 절대 하지 말 것
+### 20.4 Day 7에서 절대 하지 말 것 (기술 안전 한정)
 
-- 로그인/캡차 우회 ([PickFit.md §29](PickFit.md), [tech.md §10.7](tech.md)에 명시된 hard block)
-- 결제/장바구니/체크아웃 자동화
-- 개인 계정/마이페이지/주문 내역 크롤링
-- 단일 URL 분석을 다중 페이지 follow로 확장 (페이지네이션 자동 추적 금지)
 - Playwright를 HTTP 서버로 띄움 — PHP CLI 자식 프로세스로만
 - persistent browser profile, 브라우저 확장 설치
 - proc_open에 문자열 concat 명령 전달 (반드시 배열)

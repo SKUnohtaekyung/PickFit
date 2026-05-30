@@ -25,7 +25,7 @@ export async function currentUser() {
   }
 }
 
-export async function register({ email, password, displayName }) {
+export async function register({ email, password, displayName, gender }) {
   const payload = await apiRequest('/api/auth/register', {
     method: 'POST',
     csrf: true,
@@ -33,6 +33,7 @@ export async function register({ email, password, displayName }) {
       email,
       password,
       displayName,
+      gender,
     },
   });
 

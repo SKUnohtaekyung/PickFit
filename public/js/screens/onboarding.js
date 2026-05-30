@@ -2,7 +2,7 @@
 // Screen 2: Onboarding Quick Interview
 // ========================================
 
-import { BUDGETS, MOODS, FITS, BODY_TYPES, COLORS_PREF, AVOIDANCES } from '../data/mock.js';
+import { BUDGETS, MOODS, FITS, BODY_TYPES, COLORS_PREF, AVOIDANCES } from '../data/enums.js';
 import { state } from '../utils/state.js';
 import { staggerChildren, showToast } from '../utils/animations.js';
 
@@ -134,7 +134,7 @@ export function renderOnboarding(container, { navigateTo }) {
 
             <button id="next-btn" class="pf-btn-primary onb-next-btn" ${isNextEnabled(step, ob) ? '' : 'disabled'}>
               <span class="onb-next-balance" aria-hidden="true"></span>
-              <span class="onb-next-label">${currentStep < STEPS.length - 1 ? '다음 단계로' : 'AI 코디 추천받기'}</span>
+              <span class="onb-next-label">${currentStep < STEPS.length - 1 ? '다음 단계로' : '코디 추천받기'}</span>
               <span class="onb-next-icon" aria-hidden="true">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
               </span>

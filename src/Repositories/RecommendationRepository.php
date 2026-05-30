@@ -207,7 +207,12 @@ final class RecommendationRepository
                        p.public_id AS product_public_id, p.brand_name, p.product_name,
                        p.price_sale, p.price_original, p.discount_rate, p.hero_image_url,
                        p.product_page_url, p.fit_type, p.seasonality, p.color_family,
-                       p.category_main, p.category_sub
+                       p.category_main, p.category_sub, p.material_main,
+                       (SELECT AVG(r.rating) FROM reviews r WHERE r.product_id = p.id) AS review_rating,
+                       (SELECT r.review_text FROM reviews r WHERE r.product_id = p.id ORDER BY r.id ASC LIMIT 1) AS review_highlight,
+                       (SELECT COUNT(*) FROM reviews r WHERE r.product_id = p.id) AS review_count,
+                       (SELECT COUNT(*) FROM reviews r WHERE r.product_id = p.id AND r.size_runs = 'small') AS size_runs_small,
+                       (SELECT COUNT(*) FROM reviews r WHERE r.product_id = p.id AND r.size_runs = 'large') AS size_runs_large
                 FROM recommendation_items ri
                 INNER JOIN products p ON p.id = ri.product_id
                 WHERE ri.outfit_id IN ($placeholders)
@@ -235,10 +240,38 @@ final class RecommendationRepository
                 'colorFamily' => $row['color_family'],
                 'categoryMain' => $row['category_main'],
                 'categorySub' => $row['category_sub'],
+                'materialMain' => $row['material_main'] ?? null,
+                'reviewHighlight' => $row['review_highlight'] === null ? null : (string) $row['review_highlight'],
+                'reviewRating' => $row['review_rating'] === null ? null : (float) $row['review_rating'],
+                'reviewCount' => isset($row['review_count']) ? (int) $row['review_count'] : 0,
+                'fitRisk' => $this->fitRiskBand(
+                    isset($row['review_count']) ? (int) $row['review_count'] : 0,
+                    isset($row['size_runs_small']) ? (int) $row['size_runs_small'] : 0,
+                    isset($row['size_runs_large']) ? (int) $row['size_runs_large'] : 0,
+                ),
             ],
             'alternativeProductIds' => JsonColumn::decode($row['alternative_product_ids_json']),
             'reason' => $row['reason'] === null ? null : (string) $row['reason'],
         ], $rows);
     }
 
+    /**
+     * Review-grounded per-product fit risk, mirroring
+     * ProductRepository::computeFitRisk so saved/re-fetched outfits show the same
+     * comparison value as a fresh run.
+     */
+    private function fitRiskBand(int $reviewCount, int $smallCount, int $largeCount): string
+    {
+        if ($reviewCount < 2) {
+            return '정보부족';
+        }
+        $ratio = ($smallCount + $largeCount) / $reviewCount;
+        if ($ratio >= 0.5) {
+            return '높음';
+        }
+        if ($ratio >= 0.2) {
+            return '중간';
+        }
+        return '낮음';
+    }
 }

@@ -1,6 +1,8 @@
 -- PickFit mock catalog seed
 -- Source: js/data/mock.js PRODUCTS
 -- Requires: database/migrations/001_initial_schema.sql catalog tables.
+-- All product / brand / review text mirrors the Korean UI strings in mock.js so
+-- recommendations stay localized end-to-end. SET NAMES utf8mb4 is mandatory.
 
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
@@ -16,6 +18,7 @@ INSERT INTO products (
   public_id,
   source_url,
   source_domain,
+  origin_type,
   brand_name,
   seller_name,
   category_main,
@@ -51,15 +54,15 @@ INSERT INTO products (
   data_quality_score,
   last_synced_at
 ) VALUES
-('prod-001', NULL, 'seed.pickfit.local', 'STANDARD.O', 'PickFit Seed Catalog', 'top', 'shirt', 'unisex', 'Slim Fit Cotton Shirt', '/assets/products/shirt_white.webp', '#', 59000, 49000, 17.00, 'KRW', 'in_stock', 'slim', 'straight shirt', 'cotton blend', 'cotton 60%, polyester 40%', 'medium', 'opaque', 'low', 'spring/fall', 'white', JSON_ARRAY('minimal', 'clean', 'office'), JSON_ARRAY('office', 'interview', 'daily'), JSON_ARRAY('regular sizing', 'clean shoulder line'), 0, NULL, '2 days', 1, 0, 0, 'Seeded mock return policy. Confirm seller page before purchase.', 0.780, UTC_TIMESTAMP()),
-('prod-002', NULL, 'seed.pickfit.local', 'MUSINSA STANDARD', 'PickFit Seed Catalog', 'bottom', 'slacks', 'unisex', 'Black Wide Slacks', '/assets/products/slacks_black.webp', '#', 39000, 39000, 0.00, 'KRW', 'in_stock', 'regular', 'wide straight', 'polyester blend', 'polyester 80%, rayon 20%', 'medium', 'opaque', 'medium', 'all-season', 'black', JSON_ARRAY('minimal', 'clean', 'office'), JSON_ARRAY('office', 'interview', 'daily'), JSON_ARRAY('comfortable waist', 'straight leg balance'), 0, NULL, '2 days', 1, 0, 0, 'Seeded mock return policy. Confirm seller page before purchase.', 0.820, UTC_TIMESTAMP()),
-('prod-003', NULL, 'seed.pickfit.local', 'COMMON PROJECTS', 'PickFit Seed Catalog', 'shoes', 'derby', 'unisex', 'Minimal Derby Shoes', '/assets/products/shoes_black.webp', '#', 49000, 39000, 20.00, 'KRW', 'in_stock', 'true_to_size', 'minimal derby', 'synthetic leather', NULL, NULL, NULL, 'none', 'spring/fall', 'black', JSON_ARRAY('minimal', 'classic', 'office'), JSON_ARRAY('office', 'date', 'interview'), JSON_ARRAY('stable formal base', 'average foot width'), 3000, NULL, '3 days', 1, 3000, 3000, 'Seeded mock return policy. Confirm seller page before purchase.', 0.720, UTC_TIMESTAMP()),
-('prod-004', NULL, 'seed.pickfit.local', 'DEPOUND', 'PickFit Seed Catalog', 'top', 'knit', 'unisex', 'Relaxed Oversized Knit', '/assets/products/knit_beige.webp', '#', 68000, 58000, 15.00, 'KRW', 'in_stock', 'oversized', 'relaxed knit', 'acrylic wool blend', 'acrylic 50%, wool 30%, nylon 20%', 'thick', 'opaque', 'high', 'fall/winter', 'beige', JSON_ARRAY('soft', 'casual', 'body_compensating'), JSON_ARRAY('daily', 'office', 'date'), JSON_ARRAY('upper body coverage', 'soft shoulder line'), 0, NULL, '2 days', 1, 0, 0, 'Seeded mock return policy. Confirm seller page before purchase.', 0.800, UTC_TIMESTAMP()),
-('prod-005', NULL, 'seed.pickfit.local', 'UNIQLO', 'PickFit Seed Catalog', 'bottom', 'pants', 'unisex', 'Smart Tech Pants', '/assets/products/pants_navy.webp', '#', 49900, 49900, 0.00, 'KRW', 'in_stock', 'regular', 'tapered pants', 'polyester cotton blend', 'polyester 65%, cotton 35%', 'medium', 'opaque', 'medium', 'all-season', 'navy', JSON_ARRAY('clean', 'value', 'office'), JSON_ARRAY('office', 'travel', 'daily'), JSON_ARRAY('low fit risk', 'balanced length'), 0, NULL, '1 day', 1, 0, 0, 'Seeded mock return policy. Confirm seller page before purchase.', 0.860, UTC_TIMESTAMP()),
-('prod-006', NULL, 'seed.pickfit.local', 'NIKE', 'PickFit Seed Catalog', 'shoes', 'sneakers', 'unisex', 'Air Force 1 Low', '/assets/products/sneakers_white.webp', '#', 69000, 59000, 14.00, 'KRW', 'in_stock', 'true_to_size', 'low sneakers', 'leather blend', 'natural leather, synthetic leather', NULL, NULL, 'none', 'all-season', 'white', JSON_ARRAY('casual', 'classic', 'clean'), JSON_ARRAY('daily', 'travel', 'casual'), JSON_ARRAY('wide foot may size up', 'classic casual base'), 0, NULL, '1 day', 1, 0, 0, 'Seeded mock return policy. Confirm seller page before purchase.', 0.880, UTC_TIMESTAMP()),
-('prod-007', NULL, 'seed.pickfit.local', 'COS', 'PickFit Seed Catalog', 'top', 'tshirt', 'unisex', 'Regular Fit T-Shirt', '/assets/products/tshirt_gray.webp', '#', 39000, 29000, 26.00, 'KRW', 'in_stock', 'regular', 'regular tee', 'cotton', 'cotton 100%', 'medium', 'slightly sheer', 'low', 'spring/summer', 'gray', JSON_ARRAY('clean', 'value', 'casual'), JSON_ARRAY('daily', 'casual', 'travel'), JSON_ARRAY('regular body fit', 'low styling risk'), 3000, NULL, '3 days', 1, 5000, 5000, 'Seeded mock return policy. Confirm seller page before purchase.', 0.740, UTC_TIMESTAMP()),
-('prod-008', NULL, 'seed.pickfit.local', 'MUSINSA STANDARD', 'PickFit Seed Catalog', 'bottom', 'denim', 'unisex', 'Wide Denim Pants', '/assets/products/denim_blue.webp', '#', 55000, 45000, 18.00, 'KRW', 'in_stock', 'wide', 'wide denim', 'cotton stretch denim', 'cotton 98%, span 2%', 'thick', 'opaque', 'low', 'spring/fall', 'denim blue', JSON_ARRAY('casual', 'body_compensating', 'street'), JSON_ARRAY('daily', 'travel', 'casual'), JSON_ARRAY('lower body coverage', 'natural washing'), 0, NULL, '2 days', 1, 2500, 2500, 'Seeded mock return policy. Confirm seller page before purchase.', 0.790, UTC_TIMESTAMP()),
-('prod-009', NULL, 'seed.pickfit.local', 'ANDERSSON BELL', 'PickFit Seed Catalog', 'outer', 'blazer', 'unisex', 'Oversized Blazer', '/assets/products/blazer_charcoal.webp', '#', 119000, 89000, 25.00, 'KRW', 'in_stock', 'oversized', 'structured blazer', 'polyester rayon blend', 'polyester 70%, rayon 30%', 'medium', 'opaque', 'low', 'spring/fall', 'charcoal', JSON_ARRAY('classic', 'office', 'chic'), JSON_ARRAY('office', 'interview', 'date'), JSON_ARRAY('shoulder coverage', 'smart casual layering'), 0, NULL, '3 days', 1, 0, 0, 'Seeded mock return policy. Confirm seller page before purchase.', 0.800, UTC_TIMESTAMP());
+('prod-001', NULL, 'seed.pickfit.local', 'seed', 'STANDARD.O', 'PickFit 시드 카탈로그', 'top', 'shirt', 'unisex', '슬림핏 코튼 셔츠', '/assets/products/shirt_white.webp', '#', 59000, 49000, 17.00, 'KRW', 'in_stock', 'slim', 'straight shirt', '면 60%, 폴리 40%', '면 혼방', 'medium', 'opaque', 'low', 'spring/fall', '화이트', JSON_ARRAY('minimal', 'clean', 'office'), JSON_ARRAY('office', 'interview', 'daily'), JSON_ARRAY('정사이즈', '깔끔한 어깨 라인'), 0, NULL, '2일', 1, 0, 0, '시드 모의 반품 정책. 구매 전 판매처 페이지 확인 필요.', 0.780, UTC_TIMESTAMP()),
+('prod-002', NULL, 'seed.pickfit.local', 'seed', 'MUSINSA STANDARD', 'PickFit 시드 카탈로그', 'bottom', 'slacks', 'unisex', '세미 와이드 슬랙스', '/assets/products/slacks_black.webp', '#', 39000, 39000, 0.00, 'KRW', 'in_stock', 'regular', 'wide straight', '폴리 80%, 레이온 20%', '폴리 혼방', 'medium', 'opaque', 'medium', 'all-season', '블랙', JSON_ARRAY('minimal', 'clean', 'office'), JSON_ARRAY('office', 'interview', 'daily'), JSON_ARRAY('허리 여유', '스트레이트 다리 라인'), 0, NULL, '2일', 1, 0, 0, '시드 모의 반품 정책. 구매 전 판매처 페이지 확인 필요.', 0.820, UTC_TIMESTAMP()),
+('prod-003', NULL, 'seed.pickfit.local', 'seed', 'COMMON PROJECTS', 'PickFit 시드 카탈로그', 'shoes', 'derby', 'unisex', '미니멀 더비슈즈', '/assets/products/shoes_black.webp', '#', 49000, 39000, 20.00, 'KRW', 'in_stock', 'true_to_size', 'minimal derby', '인조가죽', NULL, NULL, NULL, 'none', 'spring/fall', '블랙', JSON_ARRAY('minimal', 'classic', 'office'), JSON_ARRAY('office', 'date', 'interview'), JSON_ARRAY('포멀 기본 베이스', '평균 발볼'), 3000, NULL, '3일', 1, 3000, 3000, '시드 모의 반품 정책. 구매 전 판매처 페이지 확인 필요.', 0.720, UTC_TIMESTAMP()),
+('prod-004', NULL, 'seed.pickfit.local', 'seed', 'DEPOUND', 'PickFit 시드 카탈로그', 'top', 'knit', 'unisex', '릴랙스 오버핏 니트', '/assets/products/knit_beige.webp', '#', 68000, 58000, 15.00, 'KRW', 'in_stock', 'oversized', 'relaxed knit', '아크릴 50%, 울 30%, 나일론 20%', '아크릴 울 혼방', 'thick', 'opaque', 'high', 'fall/winter', '베이지', JSON_ARRAY('soft', 'casual', 'body_compensating'), JSON_ARRAY('daily', 'office', 'date'), JSON_ARRAY('상체 커버', '자연스러운 어깨 드롭'), 0, NULL, '2일', 1, 0, 0, '시드 모의 반품 정책. 구매 전 판매처 페이지 확인 필요.', 0.800, UTC_TIMESTAMP()),
+('prod-005', NULL, 'seed.pickfit.local', 'seed', 'UNIQLO', 'PickFit 시드 카탈로그', 'bottom', 'pants', 'unisex', '스마트 앵클 팬츠', '/assets/products/pants_navy.webp', '#', 49900, 49900, 0.00, 'KRW', 'in_stock', 'regular', 'tapered pants', '폴리 65%, 면 35%', '폴리 코튼 혼방', 'medium', 'opaque', 'medium', 'all-season', '네이비', JSON_ARRAY('clean', 'value', 'office'), JSON_ARRAY('office', 'travel', 'daily', 'rainy'), JSON_ARRAY('낮은 핏 리스크', '균형 잡힌 기장'), 0, NULL, '1일', 1, 0, 0, '시드 모의 반품 정책. 구매 전 판매처 페이지 확인 필요.', 0.860, UTC_TIMESTAMP()),
+('prod-006', NULL, 'seed.pickfit.local', 'seed', 'NIKE', 'PickFit 시드 카탈로그', 'shoes', 'sneakers', 'unisex', '에어포스 1 로우', '/assets/products/sneakers_white.webp', '#', 69000, 59000, 14.00, 'KRW', 'in_stock', 'true_to_size', 'low sneakers', '천연가죽, 합성가죽', '가죽 혼합', NULL, NULL, 'none', 'all-season', '화이트', JSON_ARRAY('casual', 'classic', 'clean'), JSON_ARRAY('daily', 'travel', 'casual'), JSON_ARRAY('발볼 넓으면 반 사이즈 업', '클래식 캐주얼 베이스'), 0, NULL, '1일', 1, 0, 0, '시드 모의 반품 정책. 구매 전 판매처 페이지 확인 필요.', 0.880, UTC_TIMESTAMP()),
+('prod-007', NULL, 'seed.pickfit.local', 'seed', 'COS', 'PickFit 시드 카탈로그', 'top', 'tshirt', 'unisex', '레귤러핏 크루넥 티', '/assets/products/tshirt_gray.webp', '#', 39000, 29000, 26.00, 'KRW', 'in_stock', 'regular', 'regular tee', '면 100%', '면', 'medium', 'slightly sheer', 'low', 'spring/summer', '그레이', JSON_ARRAY('clean', 'value', 'casual'), JSON_ARRAY('daily', 'casual', 'travel'), JSON_ARRAY('레귤러 바디 핏', '낮은 스타일 리스크'), 3000, NULL, '3일', 1, 5000, 5000, '시드 모의 반품 정책. 구매 전 판매처 페이지 확인 필요.', 0.740, UTC_TIMESTAMP()),
+('prod-008', NULL, 'seed.pickfit.local', 'seed', 'MUSINSA STANDARD', 'PickFit 시드 카탈로그', 'bottom', 'denim', 'unisex', '와이드 데님 팬츠', '/assets/products/denim_blue.webp', '#', 55000, 45000, 18.00, 'KRW', 'in_stock', 'wide', 'wide denim', '면 98%, 스판 2%', '코튼 스트레치 데님', 'thick', 'opaque', 'low', 'spring/fall', '인디고 블루', JSON_ARRAY('casual', 'body_compensating', 'street'), JSON_ARRAY('daily', 'travel', 'casual', 'rainy'), JSON_ARRAY('하체 커버', '자연스러운 워싱'), 0, NULL, '2일', 1, 2500, 2500, '시드 모의 반품 정책. 구매 전 판매처 페이지 확인 필요.', 0.790, UTC_TIMESTAMP()),
+('prod-009', NULL, 'seed.pickfit.local', 'seed', 'ANDERSSON BELL', 'PickFit 시드 카탈로그', 'outer', 'blazer', 'unisex', '오버사이즈 블레이저', '/assets/products/blazer_charcoal.webp', '#', 119000, 89000, 25.00, 'KRW', 'in_stock', 'oversized', 'structured blazer', '폴리 70%, 레이온 30%', '폴리 레이온 혼방', 'medium', 'opaque', 'low', 'spring/fall', '차콜', JSON_ARRAY('classic', 'office', 'chic'), JSON_ARRAY('office', 'interview', 'date', 'rainy'), JSON_ARRAY('어깨 커버', '스마트 캐주얼 레이어링'), 0, NULL, '3일', 1, 0, 0, '시드 모의 반품 정책. 구매 전 판매처 페이지 확인 필요.', 0.800, UTC_TIMESTAMP());
 
 INSERT INTO product_variants (
   product_id,
@@ -84,7 +87,7 @@ INSERT INTO product_media (
   alt_text,
   sort_order
 )
-SELECT id, 'image', hero_image_url, hero_image_url, CONCAT(product_name, ' product image'), 0
+SELECT id, 'image', hero_image_url, hero_image_url, product_name, 0
 FROM products
 WHERE public_id IN ('prod-001', 'prod-002', 'prod-003', 'prod-004', 'prod-005', 'prod-006', 'prod-007', 'prod-008', 'prod-009');
 
@@ -99,13 +102,38 @@ INSERT INTO reviews (
   material_satisfaction,
   complaint_tags,
   praise_tags
-) VALUES
-((SELECT id FROM products WHERE public_id = 'prod-001'), 'rev-prod-001-summary', 4.30, 'True-to-size shirt with a slim but not tight fit. Mock review summary.', 1, 'true', 'good', 'good', JSON_ARRAY('shoulder width caution'), JSON_ARRAY('clean fit', 'office ready')),
-((SELECT id FROM products WHERE public_id = 'prod-002'), 'rev-prod-002-summary', 4.50, 'Good length, stable construction, and enough leg room. Mock review summary.', 1, 'true', 'good', 'good', JSON_ARRAY('length check needed'), JSON_ARRAY('easy office styling')),
-((SELECT id FROM products WHERE public_id = 'prod-003'), 'rev-prod-003-summary', 4.10, 'Good finish for the price and average foot comfort. Mock review summary.', 1, 'true', 'average', 'good', JSON_ARRAY('break-in needed'), JSON_ARRAY('minimal formal look')),
-((SELECT id FROM products WHERE public_id = 'prod-004'), 'rev-prod-004-summary', 4.40, 'Strong upper body coverage with a relaxed natural line. Mock review summary.', 1, 'large', 'good', 'good', JSON_ARRAY('knit care needed'), JSON_ARRAY('body coverage')),
-((SELECT id FROM products WHERE public_id = 'prod-005'), 'rev-prod-005-summary', 4.60, 'Practical length, low construction risk, and easy styling. Mock review summary.', 1, 'true', 'good', 'good', JSON_ARRAY('simple design'), JSON_ARRAY('low risk basic')),
-((SELECT id FROM products WHERE public_id = 'prod-006'), 'rev-prod-006-summary', 4.70, 'Classic design with good cushioning; wide feet may size up. Mock review summary.', 1, 'true', 'good', 'good', JSON_ARRAY('wide foot size up'), JSON_ARRAY('classic versatility')),
-((SELECT id FROM products WHERE public_id = 'prod-007'), 'rev-prod-007-summary', 4.20, 'Good fabric feel with possible shrinkage after washing. Mock review summary.', 1, 'true', 'average', 'good', JSON_ARRAY('washing shrink risk'), JSON_ARRAY('value basic')),
-((SELECT id FROM products WHERE public_id = 'prod-008'), 'rev-prod-008-summary', 4.30, 'Good lower body coverage and natural washing. Mock review summary.', 1, 'large', 'good', 'good', JSON_ARRAY('size down may help'), JSON_ARRAY('lower body coverage')),
-((SELECT id FROM products WHERE public_id = 'prod-009'), 'rev-prod-009-summary', 4.50, 'Good shoulder coverage and works for styling or office looks. Mock review summary.', 1, 'large', 'good', 'good', JSON_ARRAY('oversized fit caution'), JSON_ARRAY('smart casual layering'));
+)
+SELECT p.id,
+       CONCAT('rev-', p.public_id, '-001'),
+       CASE p.public_id
+         WHEN 'prod-001' THEN 4.3
+         WHEN 'prod-002' THEN 4.5
+         WHEN 'prod-003' THEN 4.1
+         WHEN 'prod-004' THEN 4.4
+         WHEN 'prod-005' THEN 4.6
+         WHEN 'prod-006' THEN 4.7
+         WHEN 'prod-007' THEN 4.2
+         WHEN 'prod-008' THEN 4.3
+         WHEN 'prod-009' THEN 4.5
+         ELSE 4.0
+       END,
+       CASE p.public_id
+         WHEN 'prod-001' THEN '정사이즈, 슬림하지만 답답하지 않은 라인.'
+         WHEN 'prod-002' THEN '기장 좋고 구김 적음, 허리 여유 있음.'
+         WHEN 'prod-003' THEN '가격 대비 마감 좋음, 발볼 보통.'
+         WHEN 'prod-004' THEN '상체 커버 좋음, 어깨 드롭 자연스러움.'
+         WHEN 'prod-005' THEN '기장 적절, 구김 거의 없음, 사계절 무난.'
+         WHEN 'prod-006' THEN '클래식 디자인, 착화감 좋음, 발볼 넓으면 반 사이즈 업.'
+         WHEN 'prod-007' THEN '소재 좋음, 한 번 세탁 후 약간 줄어듦.'
+         WHEN 'prod-008' THEN '하체 커버 좋음, 워싱 자연스러움.'
+         WHEN 'prod-009' THEN '어깨 드롭 좋음, 데일리·오피스 모두 가능.'
+         ELSE '리뷰 데이터를 보강 중입니다.'
+       END,
+       1,
+       'true',
+       '만족',
+       '만족',
+       NULL,
+       NULL
+FROM products p
+WHERE p.public_id IN ('prod-001', 'prod-002', 'prod-003', 'prod-004', 'prod-005', 'prod-006', 'prod-007', 'prod-008', 'prod-009');

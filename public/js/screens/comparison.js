@@ -1,131 +1,269 @@
 // ========================================
-// Screen 5: Comparison
+// Screen 5: Comparison (vertical scannable redesign)
 // ========================================
+// Layout: a 3-outfit header (thumbnail · name · price · 최저가 badge) anchors the
+// comparison, then decision rows (핏 리스크 · 핏 · 소재 · 계절감 · 리뷰 · 구매).
+// Fixes the previous cramped 3-col table: Korean fit/season labels, min-width:0
+// cells so long values wrap instead of overlapping, and inline (non-fixed)
+// actions so nothing collides with the floating nav.
+// "Best" logic, missing-value tolerance, routing, and compareOutfitIds state
+// are unchanged.
 
 import { state } from '../utils/state.js';
-import { OUTFITS } from '../data/mock.js';
 import { staggerChildren } from '../utils/animations.js';
-import { resolveOutfit } from '../utils/resolvers.js';
+import { resolveOutfit, resolveProductFromItem } from '../utils/resolvers.js';
 import { escapeHtml as e } from '../utils/escape.js';
+import { fitLabel, seasonLabel } from '../utils/labels.js';
 
-const COMPARE_ROWS = [
-  { key: 'price',        label: '가격' },
-  { key: 'fit',         label: '핏' },
-  { key: 'material',    label: '소재' },
-  { key: 'season',      label: '계절감' },
-  { key: 'shipping',    label: '배송' },
-  { key: 'returnFee',   label: '반품비' },
-  { key: 'reviewSummary', label: '리뷰 요약' },
-  { key: 'fitRisk',     label: '핏 리스크' },
+// Decision rows below the outfit header (price lives in the header now).
+const CORE_ROWS = [
+  { key: 'fitRisk',  label: '핏 리스크' },
+  { key: 'fit',      label: '핏',      kind: 'fit' },
+  { key: 'material', label: '소재' },
+  { key: 'season',   label: '계절감',  kind: 'season' },
 ];
 
-// Best-for determination (most favorable per row)
+const FALLBACK_THUMBS = ['👔', '🧥', '👕'];
+
+// Treats null/undefined/'-'/'정보 부족' as "no data available" — these must
+// never win a "Best" badge. Backend may send '정보부족' (no space) for fitRisk.
+function isMissingComparisonValue(value) {
+  if (value === null || value === undefined) return true;
+  const s = String(value).trim();
+  return s === '' || s === '-' || s === '—' || s === '정보 부족' || s === '정보부족';
+}
+
+// Best-for determination. Returns -1 when fewer than 2 outfits carry meaningful
+// data, so a lone outfit (or all-missing column) cannot be falsely awarded.
 function getBestIdx(outfits, key) {
+  const validCount = outfits.filter((o) => !isMissingComparisonValue(o.comparison?.[key])).length;
+  if (validCount < 2) return -1;
+
   if (key === 'price') {
-    // Lowest raw price
-    const prices = outfits.map(o => parseInt(o.comparison.price.replace(/[^0-9]/g, ''), 10));
+    const prices = outfits.map((o) => {
+      if (isMissingComparisonValue(o.comparison?.price)) return Number.POSITIVE_INFINITY;
+      const n = parseInt(String(o.comparison.price).replace(/[^0-9]/g, ''), 10);
+      return Number.isFinite(n) ? n : Number.POSITIVE_INFINITY;
+    });
     const min = Math.min(...prices);
-    return prices.indexOf(min);
-  }
-  if (key === 'returnFee') {
-    const fees = outfits.map(o => o.comparison.returnFee.includes('무료') ? 0 : 999);
-    const min = Math.min(...fees);
-    return fees.indexOf(min);
+    return Number.isFinite(min) ? prices.indexOf(min) : -1;
   }
   if (key === 'fitRisk') {
-    const risk = outfits.map(o => o.comparison.fitRisk === '낮음' ? 0 : o.comparison.fitRisk === '중간' ? 1 : 2);
+    const risk = outfits.map((o) => {
+      if (isMissingComparisonValue(o.comparison?.fitRisk)) return Number.POSITIVE_INFINITY;
+      if (o.comparison.fitRisk === '낮음') return 0;
+      if (o.comparison.fitRisk === '중간') return 1;
+      if (o.comparison.fitRisk === '높음') return 2;
+      return Number.POSITIVE_INFINITY;
+    });
     const min = Math.min(...risk);
-    return risk.indexOf(min);
+    return Number.isFinite(min) ? risk.indexOf(min) : -1;
   }
-  if (key === 'shipping') {
-    // Free shipping wins
-    const free = outfits.map(o => o.comparison.shipping.includes('무료') ? 0 : 1);
-    const min = Math.min(...free);
-    return free.indexOf(min);
+  return -1; // No "best" for free-text rows (fit / material / season).
+}
+
+function pickThumbnail(outfit, idx) {
+  const firstItem = Array.isArray(outfit.items) ? outfit.items[0] : null;
+  if (firstItem) {
+    const product = resolveProductFromItem(firstItem);
+    if (product?.image) return { kind: 'image', src: product.image };
   }
-  return -1; // No best
+  return { kind: 'emoji', value: FALLBACK_THUMBS[idx] || '🪞' };
 }
 
 export function renderComparison(container, { navigateTo }) {
   const compareIds = state.get('compareOutfitIds') || [];
   const recommendations = state.get('recommendations') || [];
   const outfits = compareIds.length
-    ? compareIds.map(id => resolveOutfit(id)).filter(Boolean)
-    : (recommendations.length ? recommendations.slice(0, 3) : OUTFITS);
+    ? compareIds.map((id) => resolveOutfit(id)).filter(Boolean)
+    : recommendations.slice(0, 3);
+
+  if (outfits.length === 0) {
+    container.innerHTML = `
+      <div class="cp-screen">
+        <header class="cp-topbar">
+          <button type="button" id="back-btn" class="cp-back-btn" aria-label="뒤로 가기">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+          </button>
+          <span class="cp-topbar-title">코디 비교</span>
+        </header>
+        <div class="cp-empty">
+          <div class="cp-empty-icon" aria-hidden="true">🪞</div>
+          <p class="cp-empty-title">비교할 코디가 없어요</p>
+          <p class="cp-empty-desc">먼저 추천을 받고 카드에서 비교를 시작해 주세요.</p>
+          <button type="button" id="go-onboarding" class="cp-go-onboarding">추천 받기</button>
+        </div>
+      </div>
+    `;
+    container.querySelector('#back-btn')?.addEventListener('click', () => navigateTo('home'));
+    container.querySelector('#go-onboarding')?.addEventListener('click', () => navigateTo('onboarding'));
+    return;
+  }
+
+  const colTemplate = `64px repeat(${outfits.length}, minmax(0, 1fr))`;
+  const bestPriceIdx = getBestIdx(outfits, 'price');
 
   container.innerHTML = `
-    <!-- Top Bar -->
-    <header class="sticky top-0 z-40 px-4 flex items-center gap-3" style="height:56px; background:rgba(247,248,252,0.9); backdrop-filter:blur(12px); border-bottom:1px solid rgba(217,220,230,0.5);">
-      <button id="back-btn" style="width:36px; height:36px; display:flex; align-items:center; justify-content:center; background:none; border:none; cursor:pointer; color:#12141A; border-radius:10px;">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
-      </button>
-      <span class="text-label-lg" style="color:#12141A;">코디 비교</span>
-    </header>
+    <div class="cp-screen">
+      <header class="cp-topbar">
+        <button type="button" id="back-btn" class="cp-back-btn" aria-label="뒤로 가기">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+        </button>
+        <span class="cp-topbar-title">코디 비교 (${outfits.length}개)</span>
+      </header>
 
-    <!-- Comparison Header (Outfit Names + Images) -->
-    <div class="sticky top-14 z-30" style="background:rgba(247,248,252,0.95); backdrop-filter:blur(10px); border-bottom:2px solid #D9DCE6; padding:14px 16px 0;">
-      <div style="display:grid; grid-template-columns:90px repeat(${outfits.length}, 1fr); gap:8px; padding-bottom:12px;">
-        <div></div>
-        ${outfits.map((outfit, i) => `
-          <button class="outfit-header-btn text-center" data-outfit="${e(outfit.id)}" style="display:flex; flex-direction:column; align-items:center; gap:6px; background:none; border:none; cursor:pointer;">
-            <div style="width:52px; height:52px; border-radius:12px; overflow:hidden; background:#EEF1F6; border:2px solid ${i === 0 ? '#4D5EFF' : '#D9DCE6'}; margin:0 auto; position:relative;">
-              <div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:24px;">${['👔','🧥','👕'][i]}</div>
-            </div>
-            <span class="text-label" style="color:${i === 0 ? '#4D5EFF' : '#12141A'}; font-size:11px; line-height:1.3; text-align:center;">${e(outfit.title)}</span>
-          </button>
-        `).join('')}
+      <div class="cp-outfit-bar">
+        <div class="cp-outfit-grid" style="grid-template-columns:${colTemplate};">
+          <div class="cp-outfit-corner"></div>
+          ${outfits.map((outfit, i) => renderOutfitHeader(outfit, i, bestPriceIdx)).join('')}
+        </div>
       </div>
-    </div>
 
-    <!-- Comparison Table -->
-    <div class="px-4 pb-40" style="overflow-x:hidden;">
-      ${COMPARE_ROWS.map(row => {
-        const bestIdx = getBestIdx(outfits, row.key);
-        return `
-          <div style="display:grid; grid-template-columns:90px repeat(${outfits.length}, 1fr); min-height:52px; align-items:start; padding:10px 0; border-bottom:1px solid #EEF1F6;">
-            <div style="padding:2px 0; color:#5F6675; font-size:12px; font-weight:600; padding-top:6px;">${e(row.label)}</div>
-            ${outfits.map((outfit, i) => {
-              const val = outfit.comparison[row.key] || '—';
-              const isBest = bestIdx === i;
-              const isRisk = row.key === 'fitRisk' && val === '중간';
-              return `
-                <div style="text-align:center; padding:0 4px;">
-                  <div style="font-size:13px; font-weight:${isBest ? '700' : '500'}; color:${isRisk ? '#B7791F' : '#12141A'}; line-height:1.4;">
-                    ${isRisk ? '⚠️ ' : ''}${e(val)}
-                  </div>
-                  ${isBest ? `<span class="pf-best-badge">✓ Best</span>` : ''}
-                </div>
-              `;
-            }).join('')}
+      <div class="cp-body">
+        <section class="cp-group">
+          ${CORE_ROWS.map((row) => renderRow(row, outfits, colTemplate)).join('')}
+        </section>
+
+        <section class="cp-group">
+          <p class="cp-group-title">리뷰 평점</p>
+          <div class="cp-review-grid" style="grid-template-columns:${colTemplate};">
+            <div class="cp-row-label">평점·후기</div>
+            ${outfits.map((outfit) => renderReviewCell(outfit)).join('')}
           </div>
-        `;
-      }).join('')}
-    </div>
+        </section>
 
-    <!-- Bottom CTAs -->
-    <div style="position:fixed; bottom:64px; left:50%; transform:translateX(-50%); width:100%; max-width:480px; padding:0 16px 12px; background:linear-gradient(to top, #F7F8FC 70%, transparent);">
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-        ${outfits.slice(0, 2).map(outfit => `
-          <button class="go-detail-btn pf-btn-secondary" data-outfit="${e(outfit.id)}" style="height:48px; font-size:13px;">
-            ${e(outfit.title.length > 8 ? outfit.title.substring(0, 8) + '…' : outfit.title)}
-          </button>
-        `).join('')}
+        <section class="cp-group">
+          <p class="cp-group-title">구매 정보</p>
+          <div class="cp-row cp-row--ext" style="grid-template-columns:${colTemplate};">
+            <div class="cp-row-label">배송·반품</div>
+            ${outfits.map(() => `
+              <div class="cp-row-cell">
+                <span class="cp-ext-chip">구매처 확인
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>
+                </span>
+              </div>
+            `).join('')}
+          </div>
+          <p class="cp-ext-note">배송비·반품비는 쇼핑몰마다 달라요. 구매 전 상품 페이지에서 확인해 주세요.</p>
+        </section>
+
+        <div class="cp-actions">
+          <p class="cp-actions-title">자세히 볼 코디를 선택해요</p>
+          <div class="cp-detail-row">
+            ${outfits.map((outfit) => `
+              <button type="button" class="cp-go-detail" data-outfit="${e(outfit.id)}">
+                ${e(truncateTitle(outfit.title))}
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+              </button>
+            `).join('')}
+          </div>
+          <button type="button" id="back-results-btn" class="cp-back-results">추천 목록으로 돌아가기</button>
+        </div>
       </div>
-      <button id="back-results-btn" class="pf-btn-ghost" style="width:100%; margin-top:8px; color:#5F6675;">
-        추천 목록으로 돌아가기
-      </button>
     </div>
   `;
 
-  // Back
-  container.querySelector('#back-btn')?.addEventListener('click', () => navigateTo('results'));
-  container.querySelector('#back-results-btn')?.addEventListener('click', () => navigateTo('results'));
+  staggerChildren(container, '.cp-row', 30);
 
-  // Detail buttons
-  container.querySelectorAll('.go-detail-btn, .outfit-header-btn').forEach(btn => {
+  container.querySelector('#back-btn')?.addEventListener('click', () => navigateTo(comparisonBackTarget()));
+  container.querySelector('#back-results-btn')?.addEventListener('click', () => {
+    const recs = state.get('recommendations') || [];
+    navigateTo(recs.length > 0 ? 'results' : 'home');
+  });
+
+  container.querySelectorAll('.cp-go-detail, .cp-outfit-header').forEach((btn) => {
     btn.addEventListener('click', () => {
       state.set('selectedOutfitId', btn.dataset.outfit);
       navigateTo('detail');
     });
   });
+}
+
+// Topbar back returns to the screen the user came from (detail / saved),
+// otherwise the recommendation list, otherwise home — never an onboarding bounce.
+function comparisonBackTarget() {
+  const prev = state.get('previousScreen');
+  if (prev === 'detail' || prev === 'saved') return prev;
+  const recs = state.get('recommendations') || [];
+  return recs.length > 0 ? 'results' : 'home';
+}
+
+function renderOutfitHeader(outfit, idx, bestPriceIdx) {
+  const isPrimary = idx === 0;
+  const thumb = pickThumbnail(outfit, idx);
+
+  const thumbContent = thumb.kind === 'image'
+    ? `<img src="${e(thumb.src)}" alt="" loading="lazy" />`
+    : `<span aria-hidden="true">${thumb.value}</span>`;
+
+  const price = typeof outfit.totalPrice === 'number' && outfit.totalPrice > 0
+    ? `${outfit.totalPrice.toLocaleString()}원`
+    : '정보 부족';
+  const isBestPrice = bestPriceIdx === idx;
+
+  return `
+    <button type="button" class="cp-outfit-header ${isPrimary ? 'is-primary' : ''}" data-outfit="${e(outfit.id)}">
+      <span class="cp-outfit-thumb ${isPrimary ? 'is-primary' : ''}">${thumbContent}</span>
+      <span class="cp-outfit-name">${e(outfit.title)}</span>
+      <span class="cp-outfit-price ${isBestPrice ? 'is-best' : ''}">${e(price)}</span>
+      ${isBestPrice ? `<span class="cp-best-badge cp-head-badge">✓ 최저가</span>` : ''}
+    </button>
+  `;
+}
+
+function renderRow(row, outfits, colTemplate) {
+  const bestIdx = getBestIdx(outfits, row.key);
+
+  return `
+    <div class="cp-row" style="grid-template-columns:${colTemplate};">
+      <div class="cp-row-label">${e(row.label)}</div>
+      ${outfits.map((outfit, i) => {
+        const raw = outfit.comparison?.[row.key];
+        const missing = isMissingComparisonValue(raw);
+        let val = missing ? '정보 부족' : raw;
+        if (!missing && row.kind === 'fit') val = fitLabel(raw);
+        else if (!missing && row.kind === 'season') val = seasonLabel(raw);
+        const isBest = bestIdx === i;
+        const isRisk = row.key === 'fitRisk' && (val === '중간' || val === '높음');
+        const classes = ['cp-row-value'];
+        if (isBest) classes.push('is-best');
+        if (isRisk) classes.push('is-risk');
+        if (missing) classes.push('is-missing');
+        return `
+          <div class="cp-row-cell">
+            <div class="${classes.join(' ')}">${isRisk ? '⚠️ ' : ''}${e(val)}</div>
+            ${isBest ? `<span class="cp-best-badge">✓ Best</span>` : ''}
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderReviewCell(outfit) {
+  const c = outfit.comparison || {};
+  const rating = typeof c.rating === 'number' && Number.isFinite(c.rating) ? c.rating.toFixed(1) : null;
+  const count = typeof c.reviewCount === 'number' && c.reviewCount > 0 ? c.reviewCount : 0;
+  const summary = !isMissingComparisonValue(c.reviewSummary) ? c.reviewSummary : null;
+
+  if (rating === null && !summary) {
+    return `<div class="cp-row-cell"><div class="cp-row-value is-missing">정보 부족</div></div>`;
+  }
+
+  return `
+    <div class="cp-review-cell">
+      ${rating !== null ? `
+        <span class="cp-review-rating">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.9 5.9 6.5.95-4.7 4.58 1.1 6.47L12 17.9l-5.8 3.07 1.1-6.47-4.7-4.58 6.5-.95z"/></svg>
+          ${e(rating)}
+        </span>` : ''}
+      ${count > 0 ? `<span class="cp-review-count">리뷰 ${count.toLocaleString()}</span>` : ''}
+      ${summary ? `<p class="cp-review-text">${e(summary)}</p>` : ''}
+    </div>
+  `;
+}
+
+function truncateTitle(title) {
+  if (!title) return '';
+  return title.length > 9 ? `${title.substring(0, 9)}…` : title;
 }

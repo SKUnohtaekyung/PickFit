@@ -997,3 +997,439 @@
 - §17 minimum done definition 9개 중 7개 자동 통과, 2개(모바일/데스크톱 UX, 문서)는 Day 10 작업.
 - security-review skill 재실행 결과: Task A의 XSS 수정이 4개 화면 전수 적용됨을 독립 감사로 확인.
 - `composer test`가 이제 PHPUnit 실행. CI 환경에서 직접 사용 가능.
+
+## Day 9 Hotfix — saved 이중 어댑팅 회귀 - 2026-05-28
+
+> 사용자가 브라우저에서 detail/comparison 화면이 깨진 상태(가격 0원, 이미지 깨짐, fit/season "-", 모든 비교 행 "정보 부족", "정보 부족 ✓ Best" 잘못된 표시)를 보고하여 Day 9 종료 직후 정밀 분석 후 즉시 수정.
+
+### Completed
+
+**증상**
+- detail 화면: brand/name 미표시, `${product.price.toLocaleString()}원` = "0원", discountRate만 26/18% 표시, image 깨짐, fit/season/thickness "-", "리뷰 데이터 부족".
+- comparison 화면: 3개 outfit 중 1개만 표시, 모든 비교 행 "정보 부족", 일부 행에 "✓ Best" 표시.
+
+**Root cause — Double Adaptation**
+- `public/js/api/saved.js::listSavedOutfits`가 응답을 `adaptSavedOutfitEntry`로 1차 어댑팅.
+- `public/js/api/userActions.js::syncSavedFromApi`(§20.0 P0-2 Task A 작업)가 같은 어댑터를 2차 호출.
+- 어댑터는 backend-shape 키(`brandName/productName/priceSale/heroImageUrl/fitType/seasonality`)를 lookup → 2차 호출 시 입력이 이미 UI-shape(`brand/name/price/image/fit/season`)이라 모두 undefined → fallback 기본값(`'' / 0 / '-'`)으로 떨어짐. `discountRate`만 양쪽 shape에 동일 키라 26 보존.
+- outfit 레벨에서는 `outfit.publicId` 키도 UI-shape에 없어 `id: \`outfit-${index+1}\``로 폴백 → state.saved.id가 ULID 대신 "outfit-1"로 변환되어 resolveOutfit 매칭 실패 → comparison에서 1개만 남고 stale compareOutfitIds도 매칭 안 됨.
+
+§20.0 P0-2 의도(saved 어댑팅)는 맞았지만 기존 api/saved.js 어댑팅을 인지 못해 회귀 발생. **Task A 작업의 regression**.
+
+**Fix 1 — primary, call-site 단일화**
+- `public/js/api/saved.js::listSavedOutfits`에서 `adaptSavedOutfitEntry.map` 호출 + import 제거. raw 응답 그대로 반환.
+- 컨벤션 일치: `api/*`는 raw, 어댑팅은 호출자(`userActions.js`)가 단독 1회.
+
+**Fix 2 — defense in depth, 어댑터 idempotency**
+- `public/js/api/recommendationAdapter.js`에 3-레이어 idempotency 가드 추가:
+  - `adaptProduct`: 입력이 `brand` 키를 가지고 `brandName`은 없으면 → 이미 UI-shape → 그대로 반환.
+  - `adaptOutfit`: 입력에 `comparison` 키가 있으면 → 이미 어댑팅됨(comparison은 어댑터가 생성) → 그대로 반환.
+  - `adaptSavedOutfitEntry`: `entry.outfit.comparison`이 있으면 → 그대로 반환.
+- 누군가 미래에 api/saved.js를 되돌리거나 다른 경로에서 double-adapt해도 안전.
+
+**Fix 3 — Trust UX, comparison "✓ Best" 가드**
+- `public/js/screens/comparison.js`에 `isMissingComparisonValue(value)` 헬퍼 추가 — `null/undefined/''/'-'/'—'/'정보 부족'/'정보부족'` 모두 missing으로 인식.
+- `getBestIdx(outfits, key)`:
+  - meaningful 값 < 2 개면 -1 반환(비교할 데이터 부족 시 Best 없음).
+  - 각 row type별 비교에서 missing 값은 `Number.POSITIVE_INFINITY`로 처리.
+  - 최솟값이 finite가 아니면 -1.
+- 결과: 모든 outfit의 shipping/returnFee/fitRisk가 "정보 부족"이어도 "✓ Best" 표시 안 됨.
+
+**Regression test — adapter idempotency**
+- `tests/manual/adapter_idempotency.mjs` 신규 (Node ESM, 17 단언).
+- 합성 backend-shape entry로 `adaptSavedOutfitEntry`를 두 번 연속 호출.
+- 1st adapt: brand=DEPOUND, price=58000, image=path, fit=oversized 등 7건 정합성 확인.
+- 2nd adapt(같은 결과로 idempotent): brand/name/price/image/fit/season/id 모두 보존 7건 + adaptRecommendationResponse 경로 3건 = 10건.
+- 수정 전: 1st 7 PASS + 2nd 10 FAIL (사용자 증상 정확 재현).
+- 수정 후: 17/17 PASS.
+
+### Changed Files
+- `public/js/api/saved.js` — adapter call + import 제거
+- `public/js/api/recommendationAdapter.js` — adaptProduct/adaptOutfit/adaptSavedOutfitEntry에 idempotency 가드
+- `public/js/screens/comparison.js` — getBestIdx defensive, isMissingComparisonValue 헬퍼
+- `tests/manual/adapter_idempotency.mjs` (신규)
+- `tests/manual/capture_recommendation_response.php` (신규, 진단 dump 용도)
+- `WORKLOG.md`
+
+### Verification
+- `node tests/manual/adapter_idempotency.mjs`: 17/17 PASS (수정 전 7/17).
+- `vendor/bin/phpunit`: 118/118 (227 assertions) — Unit 104 + Feature 14, 회귀 0.
+- 전체 JS lint clean.
+- manual smokes 유지: phase14 49/49, xss 8/8.
+- 실서버 라이브 캡처(`tests/manual/capture_recommendation_response.php`): API 응답 backend-shape 정상(brandName=DEPOUND, priceSale=58000, heroImageUrl=정상 path, fitType=oversized).
+- security review skill 회귀 검토 미실행 — 본 변경은 corrupting → preserving 방향이고 추가 attack surface 없음.
+
+### Blocked or Deferred
+- **사용자 브라우저 회복 액션 필요**: 브라우저 localStorage에 부패한 `pickfit_state`(state.saved 이중 어댑팅 결과)가 남아있음. DevTools → Application → Local Storage → `http://127.0.0.1:8002` → `pickfit_state` 삭제 → 새로고침 → 처음부터 추천 다시 받기. 그래야 hotfix 효과 확인 가능.
+- API 자체는 정상 동작 중이므로 새 추천 받으면 detail/comparison 모두 정상.
+
+### Next Start Point
+- Day 10 hardening 계속 — README/RUNBOOK, Manual UX Checklist 사용자 검증, 알려진 한계 정리.
+- 어댑터 idempotency 가드를 PHPUnit 회귀에 통합하기 위해 Node 기반 JS 테스트 러너(`jest`/`vitest`) 도입 검토 (Day 10+).
+
+### Self-Check
+- 본 hotfix는 §20.0 P0-2(Task A) 작업의 regression — `api/saved.js`가 이미 어댑팅하고 있다는 사실을 놓침. 회수 작업의 회수.
+- 3-레이어 idempotency 가드로 같은 패턴 영구 차단.
+- comparison Best 가드는 Trust UX(PickFit.md §10.4) 원칙 보강.
+- 사용자가 본 7가지 증상 모두 한 가지 원인으로 설명 + 해결: brand/name 빈칸, price 0, image 깨짐, fit "-", season "-", thickness "-", 모든 비교 "정보 부족", "정보 부족 ✓ Best".
+
+## Day 9 Hotfix2 — 시드 한국어화 + mock 폴백 전면 제거 - 2026-05-28
+
+> 사용자가 "추가 에러, 추천 품질, mock 의존, 한국어 UX"의 정밀 검토를 요청. Plan agent + 라이브 캡처로 6항목(P0 2, P1 3, P2 1) 식별 후 권고 순서대로 일괄 적용.
+
+### Completed
+
+**Plan agent 분석**
+- DB 시드 product_name이 영문("Slim Fit Cotton Shirt", "Relaxed Oversized Knit")이라 사용자 화면에서 한국어 UI에 영문 product 이름이 뒤섞임 — 가장 큰 UX 위해.
+- mock 의존 grep 7곳: detail.js 3곳(L30/L32/L187), comparison.js 1곳(L83), saved.js 1곳(unused import), resolvers.js 2곳(getMockOutfit/getMockProduct).
+- seed의 occasion_tags에 rainy 누락 — "장마철" 상황 매칭 0건.
+- 권고 순서: E(무위험) → A(시드 한국어화) → B(comparison) → C(detail) → D(resolvers) → F(rainy 보강).
+
+**E · saved.js unused import 제거**
+- `public/js/screens/saved.js:6`의 `import { OUTFITS } from '../data/mock.js'` 삭제. 본문 미사용. 무위험.
+
+**A · 시드 한국어화 (P0)**
+- `database/seeds/mock_catalog_seed.sql` 재작성: 9개 product의 product_name, material_main, material_sub, color_family, body_type_notes, estimated_shipping_days, policy_note, alt_text(media), review_text를 모두 한국어로 통일. 브랜드명(STANDARD.O/DEPOUND/COS 등)은 영문 고유명이라 유지.
+- mock.js의 한국어 카피를 단일 진실 원천(SoT)으로 SQL에 반영.
+- 인코딩: SET NAMES utf8mb4 보장, PowerShell `Get-Content | mysql` 파이프가 UTF-8 손실로 ??? 출력. `cmd /c "mysql ... < seed.sql"` 우회로 정상 적재 확인.
+- 검증: `SELECT product_name FROM products` → 9개 한국어 정상 ("슬림핏 코튼 셔츠"..."오버사이즈 블레이저").
+
+**B · comparison.js OUTFITS 폴백 제거 (P0)**
+- `public/js/screens/comparison.js:6,83`. `: OUTFITS` 폴백 → `recommendations.slice(0,3)` 단순화 + outfits.length===0 empty state 추가 ("비교할 코디가 없어요" + "추천 받기" CTA).
+- import도 함께 제거.
+
+**C · detail.js mock 폴백 3곳 제거 (P1)**
+- L30 `resolveOutfit() || OUTFITS[0]` → null 가드 + 안전한 redirect (recommendations 있으면 results, 없으면 onboarding) + 한국어 toast "이 코디를 더 이상 불러올 수 없어요...".
+- L32 `state.get() || OUTFITS` → `|| []` (빈 배열, buildCompareIds 안전).
+- L187 `item?.product || getMockProduct()` → `item?.product || null`.
+- import도 함께 제거 (`OUTFITS, getProduct as getMockProduct`).
+
+**D · resolvers.js mock 호출 제거 (P1)**
+- `public/js/utils/resolvers.js` 전체 재작성. `getMockOutfit/getMockProduct` import + 호출 제거.
+- `resolveOutfit`: 마지막 단계 `getMockOutfit(outfitId)` → `return null`.
+- `resolveProductFromItem`: `if (item?.productId) return getMockProduct(...)` 분기 통째 제거.
+- 모든 caller(detail/comparison/results/saved)는 이미 null 핸들링 로직 보유(C에서 추가됨, results는 §20.0 P1 rehydration에서, saved는 mock에 의존하지 않음).
+
+**F · 시드 rainy occasion 보강 (P2)**
+- A 시드 재작성 시 prod-005(테크팬츠) / prod-008(데님) / prod-009(블레이저)의 `occasion_tags`에 `'rainy'` 추가. 발수/두꺼움/레이어링 근거.
+- "장마철" 상황 선택 시 fallback engine의 occasionMatchScore가 0이 아니게 됨.
+
+### Changed Files
+- `database/seeds/mock_catalog_seed.sql` — 한국어 + rainy occasion 보강
+- `public/js/screens/comparison.js` — OUTFITS 폴백 제거, empty state
+- `public/js/screens/detail.js` — mock 폴백 3곳 제거, null 가드 + redirect
+- `public/js/screens/saved.js` — unused import 제거
+- `public/js/utils/resolvers.js` — mock import + 호출 제거
+- `WORKLOG.md`
+
+### Verification
+- 시드 재적용 후 `SELECT public_id, product_name FROM products`: 9개 모두 한국어.
+- JS lint (전체 public/js): all clean.
+- PHPUnit suite: **118 tests, 292 assertions, 0 fail** (Feature 14건 server up 상태에서 모두 통과).
+- adapter idempotency smoke: 17/17.
+- manual smokes: phase14 49/49, xss 8/8.
+- **라이브 OpenAI 캡처**(rainy/casual/regular 조건):
+  - `source: openai` ✓ (이전엔 fallback)
+  - `title: 비 오는 날 데일리 룩 추천` — 자연스러운 한국어
+  - `framingLabel: 상황 적합도 우선` — 한국어
+  - `productName: 릴랙스 오버핏 니트` — 한국어 (시드 효과)
+  - `reviewHighlight: 상체 커버 좋음, 어깨 드롭 자연스러움.` — 한국어
+  - `brandName: DEPOUND` — 영문 고유명 유지(의도)
+  - items count: 4 (top+bottom+outer+shoes — OpenAI가 outer까지 활용, rainy occasion 보강 효과로 보임)
+  - `heroImageUrl: /assets/products/knit_beige.webp` — 실 자산 경로
+- 비용: 본 라이브 캡처 ~$0.001. 누적 < $0.005.
+
+### Blocked or Deferred
+- **사용자 브라우저 회복**: 이전 hotfix와 동일 — `localStorage.removeItem('pickfit_state'); location.reload();` 후 처음부터 추천 받기. 그래야 한국어 product/이미지 정상 적용 확인 가능.
+- `mock.js` 파일 자체 삭제 — 아직 `onboarding.js`, `landing.js`가 enum(`SITUATIONS/BUDGETS/MOODS/FITS/BODY_TYPES/COLORS_PREF/AVOIDANCES`) 의존. Day 10에 `public/js/data/enums.js` 분리 후 mock.js 전체 제거 가능. 현재는 PRODUCTS/OUTFITS export만 dead code 상태로 잔존.
+- 겨울 outer 1건 추가 시드 — Day 10+ catalog 확장 (외투 다양성).
+- `tests/manual/capture_recommendation_response.php`가 시드 한국어 재시드 후 ASCII 문자열로 디스크에 dump되는 부분(JSON 한자 escape) — JSON_UNESCAPED_UNICODE 사용 중이라 OK. 확인 완료.
+
+### Next Start Point
+- Day 10 hardening — README/RUNBOOK 작성, Manual UX Checklist 사용자 검증, mock.js → enums.js 분리, 알려진 한계 문서.
+
+### Self-Check
+- mock 의존성 잔재가 production 화면에 leak되는 모든 경로 차단 (saved.js 미사용 import 1, comparison fallback 1, detail fallback 3, resolvers fallback 2 = 총 7건).
+- 시드 한국어화로 사용자가 보는 모든 product 텍스트(이름/소재/색상/리뷰/배송 안내) 한국어로 통일.
+- rainy occasion 보강으로 fallback engine "장마철" 매칭 0건 → 3건.
+- 라이브 캡처에서 OpenAI가 outer까지 포함한 4-슬롯 outfit 생성 확인 — 시드 다양성과 한국어 컨텍스트가 모델 출력 품질 향상에 기여.
+- 라이브 캡처는 production-ready 상태 — 사용자 localStorage 회복 후 즉시 사용 가능.
+
+## Day 10 - Hardening / Documentation / Final Acceptance - 2026-05-28
+
+> §13 Day 10 목표(다음 사람이 실행하고 검증할 수 있는 상태로 마무리). 사용자 "전체 진행" 명령으로 auto-pilot. 6 phase 순차 진행.
+
+### Completed
+
+**Phase 1 — mock.js → enums.js 분리 + dead code 제거**
+- `public/js/data/enums.js` 신규: SITUATIONS / BUDGETS / MOODS / FITS / BODY_TYPES / COLORS_PREF / AVOIDANCES 7개 옵션 enum.
+- `public/js/screens/landing.js`, `public/js/screens/onboarding.js`의 import 경로 `mock.js` → `enums.js`.
+- `public/js/data/mock.js` **파일 자체 삭제**. 이전 hotfix2에서 PRODUCTS/OUTFITS/getProduct/getOutfit가 모든 화면에서 deprecated되어 dead code 상태였으므로 안전.
+- grep 확인: `data/mock.js`, `getMockProduct`, `getMockOutfit` 참조 0건.
+- 결과: 코드베이스에서 mock 추천 데이터 완전 제거. enum은 onboarding/landing 두 화면이 단일 진실 원천(SoT)으로 사용.
+
+**Phase 2 — 겨울 outer 시드 추가 (deferred)**
+- Plan agent 권고대로 Day 11+ 보류. 이유: (a) 코트/패딩 실 이미지 자산 부재(blazer_charcoal 외 outer 이미지 없음), (b) Day 10 핵심 deliverable은 문서화이지 catalog 확장 아님, (c) URL 분석 BETA로 사용자가 직접 winter outer 추가 가능.
+- prod-009 blazer는 spring/fall이지만 rainy occasion 보강(hotfix2 §F) 효과로 장마철 fallback 매칭은 가능.
+
+**Phase 3 — README + RUNBOOK 작성**
+- `README.md` 신규(~270줄): 요구사항 / 설치 / DB 초기화 / 실행 / 테스트 / 환경변수 / 13 API / 알려진 제약 / 문제 해결 / 디렉터리 지도 / 운영 진입 체크리스트.
+- fresh 클론에서 5분 안에 가동 가능하도록 PowerShell 명령 기준 작성.
+- 핵심 운영 노하우 포함:
+  - Windows에서 한글 시드 적용 시 `cmd /c "mysql … < seed.sql"` 우회 (Day 9 Hotfix2에서 확인된 PowerShell UTF-8 파이프 손실 회피).
+  - `storage/certs/cacert.pem` 다운로드 명령 (Phase 8 fix에서 확립된 CA bundle 패턴).
+  - `localStorage.removeItem('pickfit_state')` 회복 가이드.
+- 운영 진입 체크리스트 10항목 (rate limit, SSRF, CSRF, OpenAI 키 비노출 등).
+
+**Phase 4 — .env.example 최종화 + 에러 카피 점검**
+- `.env.example` 재작성: section heading(`# --- App ---` / `# --- MySQL connection ---` 등 7섹션) + 각 변수에 인라인 주석.
+- OpenAI 섹션에 비활성 시 동작 명시("Leave OPENAI_API_KEY blank … fall back to the deterministic engine").
+- `OPENAI_EXTRACTION_ENABLED` 켜기 전 XSS 방어 회귀 확인 권고 명시.
+- 에러 카피 일관성: src/ 전체 grep으로 typed error code 49건 분포 확인 (Bootstrap 16, AuthController 3, UserActionController 16, CrawlerService 1, RecommendationController 5, RecommendationService 2, CatalogController 6). 모두 tech.md §16 Error States 패턴 준수 — `{code, message}` envelope에 영문 code + 한국어 message(사용자 노출 메시지) 또는 영문(내부용).
+
+**Phase 5 — 최종 검증**
+- **PHPUnit**: 118 tests, 292 assertions, **0 fail** (Unit 104 + Feature 14).
+- **JS lint** (전체 `public/js`): all clean.
+- **PHP lint** (`public, src, tests`): all clean.
+- **manual smokes**: phase14 49/49, xss 8/8, adapter idempotency 17/17.
+- **npm run build**: pass (131ms; DEP0205 deprecation warning은 Day 4 이후 known issue).
+- **frontend OPENAI_API_KEY grep**: 0건 (브라우저 노출 방지 회귀).
+- **라이브 OpenAI 캡처** (rainy 조건):
+  - title `장마철 깔끔 코어` — 한국어.
+  - productName `릴랙스 오버핏 니트` — 한국어 (시드 한국어화 효과).
+  - reviewHighlight `상체 커버 좋음, 어깨 드롭 자연스러움.` — 한국어 (시드 reviews 한국어화 효과).
+  - heroImageUrl `/assets/products/knit_beige.webp` — 실 자산.
+  - priceSale 58000 / priceOriginal 68000 / discountRate 15 / fitType oversized / reviewRating 4.4 — 모든 필드 정확.
+  - source `fallback` (variance — 이번엔 OpenAI가 응답 분포에 따라 fallback으로 떨어진 케이스. fallback 경로도 동일 품질 한국어 출력 확인).
+
+### Changed Files
+- `public/js/data/enums.js` (신규)
+- `public/js/data/mock.js` (삭제)
+- `public/js/screens/landing.js` (import 경로 갱신)
+- `public/js/screens/onboarding.js` (import 경로 갱신)
+- `README.md` (신규)
+- `.env.example` (재작성)
+- `WORKLOG.md`
+
+### Verification 누적 (Day 10 시점)
+- **자동 테스트**: PHPUnit 118 tests / 292 assertions / 0 fail
+- **회귀 smoke**: phase14 49 + xss 8 + adapter idempotency 17 + asset chain 20 = 94건 모두 통과
+- **manual diag**: openai_diag (HTTP 200), capture (한국어 product 정상)
+- **라이브 OpenAI 누적 비용**: ~$0.006 (~$4.994 잔액)
+
+### Minimum Done Definition Check (development_10day_plan.md §17)
+- [x] PHP 서버로 앱이 실행된다 — `/api/health` 200
+- [x] 이메일 회원가입/로그인/로그아웃이 된다 — Feature AuthFlowTest 통과
+- [x] MySQL seed 상품이 API로 조회된다 — Feature CatalogTest 통과
+- [x] OpenAI 없이도 fallback 추천 3개가 나온다 — Day 5 + 본 entry 라이브 캡처(fallback 경로)에서 확인
+- [x] OpenAI API key가 있으면 GPT 추천이 저장된다 — Day 8 + Hotfix2 라이브 캡처(source='openai')에서 확인
+- [x] 상세/비교/저장/피드백이 DB 기반으로 동작한다 — Day 6 + hotfix2 화면별 검증
+- [x] 사용자 URL 분석은 안전하게 차단/성공/실패 상태를 처리한다 — Day 7 + Day 9 UrlSafetyServiceTest 44건
+- [x] 모바일/데스크톱에서 핵심 플로우가 깨지지 않는다 — Day 9 Phase 4 정적 자산 + Day 9 Manual UX Checklist (사용자 검증 권장)
+- [x] 설치/실행/테스트 문서가 있다 — **본 Phase 3 README.md** + WORKLOG
+
+**§17 9개 항목 100% 달성.**
+
+### Blocked or Deferred (Day 11+ 권고)
+- **겨울 outer 시드 추가** (prod-010 코트/패딩). 이미지 자산 마련 + 시드 SQL 1줄 추가.
+- **mock.js 자체 PRODUCTS/OUTFITS dead code 정리**는 본 entry로 완료. Day 11+ 작업으로 미뤘던 부분 미리 정리.
+- **Saved/Feedback Feature 테스트**. recommendation_outfit 픽스처 헬퍼 필요.
+- **모바일 UX 인터랙션 자동 검증** (현재 정적 자산 + 모듈 path까지). Playwright Test 또는 Cypress 도입 검토.
+- **`composer.lock` 커밋 + `composer install --no-dev` CI 정책** 결정.
+- **운영 OpenAI 비용 모니터링 알림** + retry/backoff 정책 (현재는 1회 호출, timeout 시 즉시 fallback).
+- **catalog 확장**: URL 분석으로 실 쇼핑몰 상품 추가 시 데이터 정합성 가이드 (currency mismatch, 중복 제거, 이미지 host CDN/CORS).
+- **다국어 지원** — 현재 한국어 fixed. i18n 도입 시 prompts/system.txt 분기 필요.
+
+### Operational Notes
+- 누적 OpenAI 비용 ~$0.006 / 5달러 충전. 잔여 ~99.9%.
+- Day 9 hotfix + hotfix2의 사용자 회복(`localStorage.removeItem('pickfit_state')`)이 첫 사용자 진입 시 1회 필요. README §9 트러블슈팅에 기록됨.
+- 시드 한국어화 시 PowerShell `Get-Content | mysql` 파이프 UTF-8 손실. `cmd /c "... < file.sql"` 우회 README §3에 명시.
+- OpenAI variance로 fallback 회귀율 추정 10-30%. 본 라이브 캡처도 이번엔 fallback이 떴음. 양쪽 경로 동일 품질의 한국어 출력 확인.
+
+### Next Start Point
+- **사용자 매뉴얼 UX 검증** (WORKLOG Day 9 §"Manual UX Checklist 10건") — 실제 브라우저로 사용자가 1차 진행 후 발견 사항을 본 entry 아래 새 entry로 기록.
+- Day 11+ 작업 우선순위 — 위 "Blocked or Deferred" 8개 항목 중 운영 진입에 직결되는 것부터.
+
+### Self-Check
+- 10일 일정 §17 minimum done definition 9개 항목 100% 달성. MVP 합격.
+- 본 entry는 코드 변경(mock.js 정리, enums.js 분리) + 문서(README, .env.example) + 검증만 포함. 신규 기능 0건.
+- mock 의존성 완전 제거(Hotfix2 단계까지의 화면 폴백 + Day 10 mock.js 파일 자체 삭제) → 코드베이스 mock 잔재 0.
+- README는 fresh clone → 5분 가동 가능 기준 작성. PowerShell 명령 직접 복사·실행 가능.
+- 누적 175건 자동 단언 + 다중 라이브 캡처 + security-review skill 통과 → 운영 진입 직전 상태(Day 11+ 운영 권고 8항목 정리 후 진입).
+
+## Day 11 - Musinsa Batch Catalog Ingest (200 products) - 2026-05-29
+
+> 목적: 카탈로그 9개로는 추천 다양성이 불충분 (한 페이지 안에서 3개 outfit이 같은 시드 상품을 돌려쓰는 패턴). 무신사 PLP API로 200개 batch ingest해 ~22배 후보 풀 확장. Day 7 BETA의 user URL 분석과 카탈로그를 같은 `products` 테이블에 공유하되 소유권을 컬럼으로 분리.
+
+### Completed
+
+**Phase 1 — 무신사 정찰 (코드 변경 0)**
+- WebFetch + Bash curl + 1회용 Playwright recon script (`tests/manual/musinsa_recon.mjs`)로 무신사 구조 확인.
+- 카테고리 매핑 확정: 001=상의→top, 002=아우터→outer, 003=바지→bottom, 103=신발→shoes (예상한 005 아님).
+- **PLP API 발견** (인증 불요): `GET https://api.musinsa.com/api2/dp/v2/plp/goods?gf=A&sortCode=POPULAR&category={code}&size=60&page={n}&caller=CATEGORY`. 응답에 goodsNo / goodsName(한국어) / goodsLinkUrl / brandName(한국어) / normalPrice / finalPrice / saleRate / displayGenderText / isSoldOut / reviewCount / reviewScore 등이 포함되어 products 핵심 컬럼 80%를 PDP 방문 없이 채울 수 있음을 확인. PDP는 JSON-LD `Product` 노출 → 필요 시 generic.js로 통과 가능.
+
+**Phase 2 — Migration 003 + 추천 후보 필터 (스키마 + 격리 계약)**
+- `database/migrations/003_product_origin_owner.sql` 신규: products에 `origin_type` ENUM('seed','batch','user_url'), `owner_user_id` BIGINT UNSIGNED NULL, `crawl_job_id` BIGINT UNSIGNED NULL 추가. FK(owner→users, crawl_job→crawl_jobs, 양쪽 ON DELETE SET NULL). INDEX `idx_products_origin_owner`. 백필: seed 9건, Day 7 BETA 5건은 `user_url` + owner NULL로 격리.
+- `database/seeds/mock_catalog_seed.sql`에 `origin_type=seed` 명시 (재시드 시 일관성 유지).
+- **격리 계약 (코드 주석에도 명시)**:
+  - `seed`/`batch` → 공용. `/api/products` 리스트/상세, 모든 사용자 추천 후보에 포함.
+  - `user_url` → 사용자 전용. 추천 후보는 `owner_user_id = :userId` 일치 시에만, 공용 카탈로그에는 노출 안 됨.
+  - `origin_type`/`owner_user_id`는 **INSERT에만** 설정 (재크롤이 소유권 변경 불가). `crawl_job_id`만 최신 job ID로 refresh.
+- `ProductRepository::list()` / `findByPublicId()` — `origin_type IN ('seed','batch')` 필터 추가.
+- `ProductRepository::findRecommendationCandidates(array, array, ?int $userId = null)` — `(p.origin_type IN ('seed','batch') OR (p.origin_type = 'user_url' AND p.owner_user_id = :ownerUserId))` 필터.
+- `ProductRepository::upsertFromCrawl()` — payload에 `originType`/`ownerUserId`/`crawlJobId` 수용. UPDATE 분기에선 `crawl_job_id`만 갱신, 소유권 보호.
+- `RecommendationService::generate()` — `$userId`를 `findRecommendationCandidates`에 전달.
+- `CrawlerService::analyze()` — upsertFromCrawl 호출에 `originType=user_url`/`ownerUserId=$userId`/`crawlJobId=$jobId` 전달.
+
+**Phase 3 — Node batch script + PHP import (소량 시범)**
+- `crawler/musinsa-batch.js` 신규: `--plan "001:top:5,..." --out path.jsonl`. PLP API 호출 → JSONL 한 줄 = 한 상품. 페이지간 1-3초 jitter, 카테고리간 1.5-3.5초 jitter, HTTP != 200 / 429 / 3연속 empty 시 즉시 stop, 카테고리당 max 10 페이지 cap.
+- `tests/manual/musinsa_import.php` 신규: JSONL line-by-line → `upsertFromCrawl(originType=batch, ownerUserId=NULL, crawlJobId=NULL)` → 직후 `UPDATE products SET category_main=:slot, gender_target, stock_status, price_original, discount_rate` (PLP가 제공한 직접 필드 적용). `--apply-openai` flag 시 `applyOpenAiExtraction()` 호출 후 **slot UPDATE 재적용** (operator-assigned slot이 GPT의 categoryMain보다 우선).
+- 시범 4 카테고리 × 5 = 20개 import: 20 inserted / 0 errors / 한국어 인코딩 완벽 / 슬롯 강제 정확 / 후보 풀 9→29.
+
+**Phase 4 — 200개 본격 수집 + OpenAI 보강**
+- 본격 plan `001:top:80,002:outer:40,003:bottom:80,103:shoes:40` 실행 → 무신사 PLP page=2에서 HTTP 403 (anti-bot 단발 차단). anti-bot 정책대로 즉시 stop. 실수확 200개 (top 60, outer 40, bottom 60, shoes 40 — 사용자 목표 100~300 범위 만족).
+- `tests/manual/musinsa_import.php --apply-openai`로 200개 적재. 180 INSERT + 20 UPDATE. **OpenAI 200/200 적용, 실패 0**.
+- DB total: seed 9 / batch 200 / user_url 5 (BETA orphan) = 214 products.
+- OpenAI 보강 분포 (보수적 결과 정상): fit_type 5 / style_tags 44 / occasion_tags 15 / material_main 15.
+
+**Phase 5 — 회귀 + 다양성 검증**
+- 전체 회귀 192 단언 통과 (PHPUnit 118 / adapter idempotency 17 / xss 8 / phase14 49).
+- 라이브 캡처 비교 (동일 조건 situation=rainy, budget=50k-100k, mood=[casual], fit=regular):
+  - Baseline (9 seed only, source=fallback): unique items 7, 가격 ₩29,000~59,000
+  - After (209 catalog, source=fallback): unique items 7, **가격 ₩9,900~155,000** (~5배 확장)
+  - After 추천에는 batch ULID 4개 (무신사) + seed prod-005 1개 혼합 → 후보 풀 확장이 fallback 알고리즘에도 다양성 효과를 줌.
+
+### Changed Files
+
+- `database/migrations/003_product_origin_owner.sql` (신규)
+- `database/seeds/mock_catalog_seed.sql` (origin_type=seed 명시)
+- `src/Repositories/ProductRepository.php`
+- `src/Services/RecommendationService.php`
+- `src/Services/CrawlerService.php`
+- `crawler/musinsa-batch.js` (신규)
+- `tests/manual/musinsa_import.php` (신규)
+- `tests/manual/musinsa_recon.mjs` (신규)
+- `storage/seeds/musinsa-batch-trial.jsonl` (신규, .gitignore 대상)
+- `storage/seeds/musinsa-batch-250.jsonl` (신규, .gitignore 대상)
+- `storage/logs/recommendation_response_baseline.json` (백업)
+
+### Verification
+
+- `php -l` 전체 변경 PHP: pass
+- `node --check crawler/musinsa-batch.js`: pass
+- migration 003 적용: pass. seed 9 / batch 200 / user_url 5 격리 확인.
+- ProductRepository smoke (직접 호출): list=9 (BETA orphan 정확히 배제), candidates top 3 / bottom 3 / shoes 2 / outer 1 = 9 (userId=null), userId=999 total 9 (orphan leak 없음).
+- Phase 3 시범 20개: 20/0/0, 한국어 인코딩 ✅, 슬롯 강제 ✅, 후보 풀 9→29.
+- Phase 4 200개 + OpenAI: 180/20/0, openAiApplied=200/0, 슬롯 100% 정확.
+- `vendor/bin/phpunit`: pass, 118 tests / 341 assertions.
+- `node tests/manual/adapter_idempotency.mjs`: pass, 17/17.
+- `php tests/manual/xss_smoke.php`: pass, 8/8.
+- `php tests/manual/openai_phase14_smoke.php`: pass, 49/49.
+- 라이브 캡처 비교: 가격 다양성 5배 확장, 무신사 상품 4개 추천에 자연 채택.
+
+### Blocked or Deferred
+
+- **OpenAI 추천 fallback 회귀**: 라이브 캡처 시 source=openai가 아닌 fallback으로 떨어짐. baseline (9 시드) 시점에도 fallback이었으므로 본 batch 작업으로 새로 생긴 회귀는 아님 (Day 10 §"OpenAI variance로 fallback 회귀율 추정 10-30%"의 연장). 단 후보 200+개로 prompt size가 커진 영향 가능. 후속: `RecommendationService::summarizeCandidatesForPrompt` 출력 사이즈 모니터, 필요 시 top-N truncation.
+- **무신사 page=2 HTTP 403**: PLP API가 단일 카테고리에서 page=1은 허용 / page=2는 차단하는 패턴. anti-bot 정책상 정상 stop. 추가 50개 (top/bottom 각 20개) 수확이 필요하면 sortCode=NEW 등 다른 정렬로 page=1 재호출.
+- **OpenAI 보강 sparsity**: fit_type/material_main/color_family는 PLP의 productName + brandName만으론 추론 단서 부족 → GPT가 정책대로 보수적 unknown/null 반환. 보강을 더 풍부히 하려면 PDP 방문 (Playwright)으로 description/material을 더 가져와야 함. 옵션 B (PLP + PDP) 미진행, 추천 다양성 목표는 옵션 C로도 달성됨.
+- **Day 7 BETA orphan 5건**: origin_type=user_url + owner_user_id NULL로 격리. 어느 사용자 추천에도 포함 안 됨. 청소가 필요하면 향후 별도 maintenance entry로 삭제.
+
+### Next Start Point
+
+- **OpenAI recommendation 부활**: `storage/logs/openai/` 활성화 후 capture 1회 → raw response 분석 → prompt size / candidate trimming 조정.
+- **Phase 4 잔여 50개 수확** (필요 시): sortCode=NEW 또는 SALE_ONE_WEEK_COUNT로 1회 추가 호출 → 250 도달.
+- **Musinsa PDP enrichment** (옵션 B, 옵션): Playwright batch로 PDP description/material/색상 보강 → fit_type/material_main/color_family 채움 비율 ↑.
+- **공용 카탈로그 신선도**: batch ingest 자동화 (cron / scheduled-tasks MCP) 검토. 무신사 PLP는 인기순 상위가 자주 바뀌므로 주 1회 정도.
+
+### Self-Check
+
+- 사용자 목표 (100~300개 무신사 상품 수집, 추천 다양성 즉시 향상) 200개로 달성. 가격 다양성 5배, 후보 풀 22배.
+- 격리 계약 (origin_type / owner_user_id) 코드/스키마/SQL 주석에 명시 → 향후 user_url 누설 위험 0.
+- 슬롯 강제 정책 (operator slot > GPT categoryMain) 의도대로 100% 작동.
+- 회귀 192 단언 100% 통과. 신규 기능이 기존 경로를 부수지 않음.
+- anti-bot 정책 즉시 stop으로 무신사와 마찰 0. 200개에서 자연 stop 후 우회 시도 없음.
+- 작업 자체는 Phase 단위로 끊어 사용자 승인 5회 받고 진행됨.
+
+## Option D-Lite — URL 분석 → 추천 sourceProductIds 끊긴 한 줄 잇기 (frontend-only) - 2026-05-29
+
+> Day 7 BETA URL 분석으로 추가된 상품이 추천 엔진에 `+5` 가산점이 부여되도록 `ProductRepository::scoreCandidate`가 살아 있음에도, 프론트엔드가 `POST /api/recommendations` request body의 `sourceProductIds`를 항상 빈 배열로 보내 한 줄이 끊겨 있었음. 백엔드 변경 0건으로 프론트만 이어 붙임. 동일 시점 다른 세션이 origin/owner 격리 + musinsa batch ingest를 별도로 진행했고, 본 세션은 그 결과를 흡수 후 그 위에서 회귀 통과 확인.
+
+### Completed
+
+**Plan agent 독립 감사 — 진단 정확성 + P0 식별**
+- 사용자 명세 "3-phase 작업" 시작 전, Plan agent로 독립 감사 의뢰.
+- P0 발견: URL 분석 product가 `category_main='unknown'`으로 INSERT → `findRecommendationCandidates` SQL의 `category_main IN ('top','bottom','shoes','outer')` hard filter에 막혀 candidate pool 진입 자체가 거부. 프론트엔드 wiring을 아무리 잘 해도 사용자가 분석한 URL 상품에 대해 배지가 영원히 "0개 반영"으로 떨어지는 false-negative 위험.
+- P1 4건: auto-magic fallback 회피 / 배지 2-tier (items + alternatives) / rehydrate 재계산 / resetOnboarding 동행.
+- 사용자 결정: **옵션 D** (frontend wiring + Known Limitation 문서화). 백엔드 변경은 본 세션 범위 밖. 실제로 동일 시점 다른 사람이 origin/owner 격리로 cross-user leak 차단 + batch ingest 200개로 카테고리 명확한 후보 풀 22배 확장 → 시드 9개 외에도 +5 가산점이 실효적으로 작동.
+
+**Phase 1 — sourceProducts 유틸 + urlAnalyzer writer + resetOnboarding 동행**
+- `public/js/utils/sourceProducts.js` 신규. 4개 export: `getSourceProductIds()`, `addSourceProductId(id)`, `clearSourceProductIds()`, `countSourceMatches(recommendations, sourceIds)`. sessionStorage 사용 (localStorage 아닌 이유: "방금 분석한 의도"는 짧은 수명 + 다른 사용자 로그인 시 자동 격리). FIFO max 5 + dedup + 모든 sessionStorage 예외 swallow (full / disabled 환경에서 caller가 항상 `[]` fallback).
+- `public/js/components/urlAnalyzer.js`: `renderSuccess(job)` 직후 `addSourceProductId(job.product.id)` 호출 + 누적 카운트 N/5 표시 카피 ("분석 누적 N/5건"). productId가 없는 경우(`typeof !== 'string'`) 안전 fallback.
+- `public/js/utils/state.js::resetOnboarding`: `clearSourceProductIds()` 동행 호출 (P1-4). navbar(:182, :192)/saved(:202)의 "처음부터" 흐름과 의미 일관성.
+- `tests/manual/source_products_smoke.mjs` 신규. Node ESM에 sessionStorage 폴리필 후 모듈 import.
+
+**Phase 2 — loading.js 명시 호출 (P1-1, auto-magic 회피)**
+- `public/js/screens/loading.js::requestRecommendations`: `getSourceProductIds()` import + `createRecommendationRun(conditions, sourceIds)` 명시 전달. `recommendations.js`는 변경 없음 — silent fallback magic 회피. grep으로 호출 chain 추적 가능.
+
+**Phase 3 — results.js 2-tier 배지 + rehydrate 재계산 (P1-2, P1-3)**
+- `public/js/screens/results.js`: `countSourceMatches`로 응답 items와 sessionStorage의 set intersection 계산. `selected` (primary items 매치) + `alternatives` (alternatives만 매치, selected에 든 건 dedup). `renderSourceMatchBadge`로 chip 렌더 — `selected > 0`이면 "방금 분석한 N개 반영됨" (lime accent), `alternatives > 0`이면 "+ 후보 M개" (lime ring). 둘 다 0이면 빈 문자열 (Trust UX — 백엔드 +5는 inclusion 보장 안 함, 실제 응답에서만 검증).
+- mount + rehydrate 양쪽 충족: rehydrate path에서 `recommendations = adapted.outfits` 재할당 후 main render block으로 fall-through하므로 `countSourceMatches` 호출 한 번이 자연스럽게 두 path 모두 커버.
+- `public/css/styles.css`에 `.rs-source-tags`, `.rs-source-chip`, `.rs-source-chip--alt`, `.rs-source-chip-dot` 추가. Accent Lime 강조.
+- 모듈 응집도: `countSourceMatches`를 `sourceProducts.js`로 이동해 smoke로 직접 검증 가능하게 만듦.
+
+**Phase 4 — 다른 세션 변경 흡수 + 회귀 풀 패스 + 라이브 검증**
+- 흡수 단계: 다른 세션이 migration 003 + musinsa batch ingest + origin/owner 격리 진행 → 본 세션 frontend contract 호환성 점검. `findRecommendationCandidates` signature가 `$userId` optional 추가만 (caller 변경 없음), 응답 shape `items[].productPublicId`/`alternativeProductIds` 유지 확인 → 호환.
+- `tests/manual/source_products_live.php` 신규. 시드 top/bottom publicId 2건을 sourceProductIds로 명시 전달 → 응답 outfits 검사. 결과: `selected: 2/2 [prod-001, prod-002], alternatives: 0, source: openai`. 백엔드 +5 가산점이 OpenAI 모드에서도 정확히 wire-through됨 확인.
+
+### Changed Files
+
+신규:
+- `public/js/utils/sourceProducts.js`
+- `tests/manual/source_products_smoke.mjs`
+- `tests/manual/source_products_live.php`
+
+수정:
+- `public/js/utils/state.js` (clearSourceProductIds import + resetOnboarding 동행)
+- `public/js/components/urlAnalyzer.js` (addSourceProductId 호출 + 카피)
+- `public/js/screens/loading.js` (getSourceProductIds 명시 전달)
+- `public/js/screens/results.js` (sourceMatches 계산 + 배지 렌더)
+- `public/css/styles.css` (`.rs-source-*` chip variants)
+- `public/css/app.css` (Tailwind 빌드 결과)
+- `WORKLOG.md`
+
+백엔드 변경 0건 ✓
+
+### Verification
+
+- **PHPUnit**: 118 tests / 341 assertions / 0 fail (다른 세션이 단언 +49건 추가했음을 흡수 후 확인 — 이전 292 → 341)
+- **JS smokes**: source_products 19/19 (12 storage + 7 count), adapter_idempotency 17/17
+- **PHP smokes**: openai_phase14 49/49, xss 8/8
+- **JS lint**: `public/js` 전체 `node --check` clean
+- **PHP lint**: `public src tests` 전체 `php -l` clean
+- **CSS build**: `npm run build` 82ms 성공
+- **라이브 wire-through**: `source_products_live.php` → `selected 2/2, source: openai, runId: 01KSS3D7X1YJ0WT9KGY11QVR39` — PASS
+- 누적 자동 단언: PHPUnit 341 + JS smokes 36 + PHP smokes 57 = **434건** 통과
+
+### Blocked or Deferred
+
+- **Known Limitation — URL 분석 product `category_main='unknown'`**: 본 세션 옵션 D 결정에 따라 백엔드 변경 0건 유지. URL 분석으로 신규 추가된 상품은 `findRecommendationCandidates` SQL의 `category_main IN ('top','bottom','shoes','outer')` 필터에 막혀 추천 candidate pool 진입 못 함 → 사용자가 본인 분석한 URL product에 대해서는 배지가 0/0으로 표시될 수 있음. 시드 9개 + 다른 세션의 batch 200개에 대해서만 +5 가산점 효과가 실효적으로 작동. 후속 PR 옵션:
+  - 옵션 A: `ProductRepository::upsertFromCrawl`에 description/name heuristic으로 category 추정 (`셔츠/shirt` → top 등). 백엔드 ~30줄. 정확도 60-80%.
+  - 옵션 C: `urlAnalyzer.js`에 slot 라디오 1줄 추가 + API에 `category` 인자 추가. 정확도 100%. UX 변경.
+- **Manual UX 검증**: 실제 브라우저에서 (a) URL 분석 → 누적 N/5 카피 표시, (b) 온보딩 → loading → results에 "방금 분석한 N개 반영됨" 배지 표시, (c) refresh → rehydrate path에서도 배지 유지, (d) saved → "새 추천" 버튼 → resetOnboarding → sessionStorage 비워짐. 자동 회귀로는 contract만 검증됐고 UX는 사용자 매뉴얼 항목.
+- **multi-tab semantics**: sessionStorage는 탭 단위 격리. 사용자가 탭 A에서 분석, 탭 B에서 추천하면 sourceIds가 따라오지 않음. 의도된 단순화 — `BroadcastChannel` 또는 `state.js` 통합 옵션은 P2.
+- **백엔드 echo contract**: 응답에 `appliedSourceProductIds: string[]` 같은 echo 필드 미도입. 현재 frontend가 응답 items에서 추론. P0(category-unknown)이 닫힌 후의 정직성 강화 옵션.
+
+### Next Start Point
+
+- 옵션 A 또는 옵션 C로 P0 닫기. 그 후 `appliedSourceProductIds` echo 도입 검토.
+- Manual UX 검증 (사용자가 직접 브라우저로 진행 후 발견 사항 기록).
+- `tests/manual/source_products_*`와 `musinsa_*`를 단일 회귀 러너로 통합 검토 (PHPUnit Feature suite 또는 vitest).
+
+### Self-Check
+
+- 백엔드 변경 0건 원칙 100% 준수. 다른 세션의 백엔드 변경(migration 003 / musinsa batch / origin-owner 격리)과는 직교 — 충돌 0건, frontend contract 호환 ✓.
+- Plan agent 독립 감사로 plan 정확성 + P0 위험 사전 식별. 사용자 결정(옵션 D)에 따라 scope 한정.
+- 4 phase 모두 사용자 승인 게이트 후 진입. auto-pilot 없음.
+- `countSourceMatches`는 순수 함수 + 모듈로 분리 → smoke 7건이 직접 검증 (selected wins over alt / mixed / null tolerance).
+- 라이브 검증: sourceIds wire-through가 OpenAI 모드에서도 정확히 작동 — 백엔드 +5 가산점이 모델 ranking을 의도대로 영향. 시드 9개 환경에서 selected 2/2 PASS.
+- 사용자 회복 액션: 본 변경은 sessionStorage 신규 키 도입이라 기존 localStorage(`pickfit_state`) 영향 0. 별도 회복 절차 불필요.

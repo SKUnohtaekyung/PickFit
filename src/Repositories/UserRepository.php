@@ -17,21 +17,22 @@ final class UserRepository
     /**
      * @return array<string, mixed>
      */
-    public function create(string $email, string $passwordHash, ?string $displayName): array
+    public function create(string $email, string $passwordHash, ?string $displayName, ?string $gender = null): array
     {
         for ($attempt = 0; $attempt < 3; $attempt++) {
             $publicId = PublicId::generate();
 
             try {
                 $statement = $this->pdo->prepare(
-                    'INSERT INTO users (public_id, email, password_hash, display_name)
-                     VALUES (:publicId, :email, :passwordHash, :displayName)',
+                    'INSERT INTO users (public_id, email, password_hash, display_name, gender)
+                     VALUES (:publicId, :email, :passwordHash, :displayName, :gender)',
                 );
                 $statement->execute([
                     'publicId' => $publicId,
                     'email' => $email,
                     'passwordHash' => $passwordHash,
                     'displayName' => $displayName,
+                    'gender' => $gender,
                 ]);
 
                 $user = $this->findAuthRecordByEmail($email);
@@ -58,7 +59,7 @@ final class UserRepository
     public function findAuthRecordByEmail(string $email): ?array
     {
         $statement = $this->pdo->prepare(
-            'SELECT id, public_id, email, password_hash, display_name, role, last_login_at, created_at, updated_at
+            'SELECT id, public_id, email, password_hash, display_name, gender, role, last_login_at, created_at, updated_at
              FROM users WHERE email = :email LIMIT 1',
         );
         $statement->execute(['email' => $email]);
@@ -73,7 +74,7 @@ final class UserRepository
     public function findByPublicId(string $publicId): ?array
     {
         $statement = $this->pdo->prepare(
-            'SELECT id, public_id, email, display_name, role, last_login_at, created_at, updated_at
+            'SELECT id, public_id, email, display_name, gender, role, last_login_at, created_at, updated_at
              FROM users WHERE public_id = :publicId LIMIT 1',
         );
         $statement->execute(['publicId' => $publicId]);
@@ -110,6 +111,7 @@ final class UserRepository
             'publicId' => (string) $row['public_id'],
             'email' => (string) $row['email'],
             'displayName' => $row['display_name'] === null ? null : (string) $row['display_name'],
+            'gender' => isset($row['gender']) && $row['gender'] !== null ? (string) $row['gender'] : null,
             'role' => (string) $row['role'],
             'lastLoginAt' => $row['last_login_at'] === null ? null : (string) $row['last_login_at'],
             'createdAt' => (string) $row['created_at'],

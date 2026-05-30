@@ -25,7 +25,10 @@ final class ProductRepository
         ?string $cursor,
     ): array
     {
-        $conditions = ['stock_status <> :soldOut'];
+        // Public catalog browse: only batch-ingested (Musinsa) rows. The 9 seed
+        // mock products are excluded everywhere — the live catalog is the real
+        // batch ingest. user_url crawls surface through recommendations, not here.
+        $conditions = ["stock_status <> :soldOut", "origin_type = 'batch'"];
         $params = ['soldOut' => 'sold_out'];
 
         if ($category !== null && $category !== '') {
@@ -82,7 +85,10 @@ final class ProductRepository
      */
     public function findByPublicId(string $publicId): ?array
     {
-        $statement = $this->pdo->prepare('SELECT * FROM products WHERE public_id = :publicId LIMIT 1');
+        $statement = $this->pdo->prepare(
+            "SELECT * FROM products
+             WHERE public_id = :publicId AND origin_type = 'batch' LIMIT 1",
+        );
         $statement->execute(['publicId' => $publicId]);
         $product = $statement->fetch();
 
@@ -99,7 +105,13 @@ final class ProductRepository
      * Returns the internal product id for crawl_jobs.product_id linkage.
      *
      * Required keys in $payload: sourceUrl, sourceDomain. Optional: productName, brandName,
-     * description, priceCandidates, currencyCandidates, heroImageUrl, imageUrls, screenshotPath.
+     * description, priceCandidates, currencyCandidates, heroImageUrl, imageUrls, screenshotPath,
+     * originType ('batch'|'user_url', default 'user_url'), ownerUserId, crawlJobId.
+     *
+     * Ownership rule: origin_type / owner_user_id are ONLY set on initial INSERT. Re-crawls of
+     * the same source_url never change ownership — a later user submitting the same URL cannot
+     * take over a row originally seeded or owned by someone else. crawl_job_id is refreshed to
+     * the most recent job for traceability.
      *
      * @param array<string, mixed> $payload
      */
@@ -131,6 +143,17 @@ final class ProductRepository
         }
         $qualityScore = $this->scoreCrawlQuality($payload);
 
+        $originType = isset($payload['originType']) && is_string($payload['originType'])
+            && in_array($payload['originType'], ['batch', 'user_url'], true)
+            ? $payload['originType']
+            : 'user_url';
+        $ownerUserId = isset($payload['ownerUserId']) && is_int($payload['ownerUserId']) && $payload['ownerUserId'] > 0
+            ? $payload['ownerUserId']
+            : null;
+        $crawlJobId = isset($payload['crawlJobId']) && is_int($payload['crawlJobId']) && $payload['crawlJobId'] > 0
+            ? $payload['crawlJobId']
+            : null;
+
         $existing = $this->pdo->prepare('SELECT id FROM products WHERE source_url = :url LIMIT 1');
         $existing->execute(['url' => $sourceUrl]);
         $existingId = $existing->fetchColumn();
@@ -145,6 +168,7 @@ final class ProductRepository
                      product_page_url = :productPageUrl,
                      price_sale = COALESCE(:priceSale, price_sale),
                      currency = :currency,
+                     crawl_job_id = COALESCE(:crawlJobId, crawl_job_id),
                      data_quality_score = GREATEST(data_quality_score, :qualityScore),
                      last_synced_at = CURRENT_TIMESTAMP
                  WHERE id = :id',
@@ -157,6 +181,7 @@ final class ProductRepository
                 'productPageUrl' => $sourceUrl,
                 'priceSale' => $priceSale,
                 'currency' => $currency,
+                'crawlJobId' => $crawlJobId,
                 'qualityScore' => $qualityScore,
                 'id' => (int) $existingId,
             ]);
@@ -165,11 +190,13 @@ final class ProductRepository
             $publicId = \PickFit\Support\PublicId::generate();
             $insert = $this->pdo->prepare(
                 'INSERT INTO products
-                    (public_id, source_url, source_domain, brand_name, category_main, gender_target,
+                    (public_id, source_url, source_domain, origin_type, owner_user_id, crawl_job_id,
+                     brand_name, category_main, gender_target,
                      product_name, hero_image_url, product_page_url, price_sale, currency, stock_status,
                      data_quality_score, last_synced_at)
                  VALUES
-                    (:publicId, :sourceUrl, :sourceDomain, :brandName, :categoryMain, :genderTarget,
+                    (:publicId, :sourceUrl, :sourceDomain, :originType, :ownerUserId, :crawlJobId,
+                     :brandName, :categoryMain, :genderTarget,
                      :productName, :heroImageUrl, :productPageUrl, :priceSale, :currency, :stockStatus,
                      :qualityScore, CURRENT_TIMESTAMP)',
             );
@@ -177,6 +204,9 @@ final class ProductRepository
                 'publicId' => $publicId,
                 'sourceUrl' => $sourceUrl,
                 'sourceDomain' => $sourceDomain,
+                'originType' => $originType,
+                'ownerUserId' => $ownerUserId,
+                'crawlJobId' => $crawlJobId,
                 'brandName' => $brandName,
                 'categoryMain' => 'unknown',
                 'genderTarget' => null,
@@ -424,31 +454,62 @@ final class ProductRepository
      * @param array<int, string> $sourceProductPublicIds Optional product ids to include if available.
      * @return array{top: array<int, array<string, mixed>>, bottom: array<int, array<string, mixed>>, shoes: array<int, array<string, mixed>>, outer: array<int, array<string, mixed>>}
      */
-    public function findRecommendationCandidates(array $conditions, array $sourceProductPublicIds = []): array
+    public function findRecommendationCandidates(
+        array $conditions,
+        array $sourceProductPublicIds = [],
+        ?int $userId = null,
+        ?string $userGender = null,
+    ): array
     {
         $situation = is_string($conditions['situation'] ?? null) ? $conditions['situation'] : null;
         $mood = is_array($conditions['mood'] ?? null) ? $conditions['mood'] : [];
         $colors = is_array($conditions['colors'] ?? null) ? $conditions['colors'] : [];
 
+        // Recommendation candidates: real batch-ingested (Musinsa) catalog and,
+        // when authenticated, the caller's own user_url crawls. The 9 seed mocks
+        // are excluded so results stop recycling them. user_url rows owned by other
+        // users — or orphaned (owner_user_id IS NULL) — are excluded.
+        $ownerClause = $userId === null
+            ? "p.origin_type = 'batch'"
+            : "(p.origin_type = 'batch' OR (p.origin_type = 'user_url' AND p.owner_user_id = :ownerUserId))";
+
+        // Gender relevance: a 여성 user sees women's + unisex (and ungendered)
+        // products, 남성 sees men's + unisex; no/unknown gender → no filter (all).
+        $genderClause = ($userGender === 'male' || $userGender === 'female')
+            ? " AND (p.gender_target = :userGender OR p.gender_target = 'unisex' OR p.gender_target IS NULL)"
+            : '';
+
         $sql = 'SELECT p.id, p.public_id, p.brand_name, p.product_name, p.category_main, p.category_sub,
                        p.price_original, p.price_sale, p.discount_rate, p.hero_image_url, p.product_page_url,
                        p.fit_type, p.silhouette, p.seasonality, p.color_family, p.style_tags, p.occasion_tags,
                        p.body_type_notes, p.stretch, p.thickness, p.opacity, p.stock_status,
-                       p.data_quality_score,
+                       p.data_quality_score, p.material_main,
                        (SELECT AVG(r.rating) FROM reviews r WHERE r.product_id = p.id) AS review_rating,
-                       (SELECT r.review_text FROM reviews r WHERE r.product_id = p.id ORDER BY r.id ASC LIMIT 1) AS review_highlight
+                       (SELECT r.review_text FROM reviews r WHERE r.product_id = p.id ORDER BY r.id ASC LIMIT 1) AS review_highlight,
+                       (SELECT COUNT(*) FROM reviews r WHERE r.product_id = p.id) AS review_count,
+                       (SELECT COUNT(*) FROM reviews r WHERE r.product_id = p.id AND r.size_runs = \'small\') AS size_runs_small,
+                       (SELECT COUNT(*) FROM reviews r WHERE r.product_id = p.id AND r.size_runs = \'large\') AS size_runs_large
                 FROM products p
                 WHERE p.stock_status <> :soldOut
-                  AND p.category_main IN (:catTop, :catBottom, :catShoes, :catOuter)';
+                  AND p.category_main IN (:catTop, :catBottom, :catShoes, :catOuter)
+                  AND ' . $ownerClause . $genderClause;
 
-        $statement = $this->pdo->prepare($sql);
-        $statement->execute([
+        $params = [
             'soldOut' => 'sold_out',
             'catTop' => 'top',
             'catBottom' => 'bottom',
             'catShoes' => 'shoes',
             'catOuter' => 'outer',
-        ]);
+        ];
+        if ($userId !== null) {
+            $params['ownerUserId'] = $userId;
+        }
+        if ($userGender === 'male' || $userGender === 'female') {
+            $params['userGender'] = $userGender;
+        }
+
+        $statement = $this->pdo->prepare($sql);
+        $statement->execute($params);
 
         $grouped = [
             'top' => [],
@@ -513,7 +574,35 @@ final class ProductRepository
             'dataQualityScore' => isset($row['data_quality_score']) ? (float) $row['data_quality_score'] : 0.0,
             'reviewRating' => $row['review_rating'] === null ? null : (float) $row['review_rating'],
             'reviewHighlight' => $row['review_highlight'] === null ? null : (string) $row['review_highlight'],
+            'materialMain' => $row['material_main'] ?? null,
+            'reviewCount' => isset($row['review_count']) ? (int) $row['review_count'] : 0,
+            'fitRisk' => $this->computeFitRisk(
+                isset($row['review_count']) ? (int) $row['review_count'] : 0,
+                isset($row['size_runs_small']) ? (int) $row['size_runs_small'] : 0,
+                isset($row['size_runs_large']) ? (int) $row['size_runs_large'] : 0,
+            ),
         ];
+    }
+
+    /**
+     * Review-grounded per-product fit risk for the comparison UI.
+     * Bands by the share of reviewers who reported the item ran small/large.
+     * Returns '정보부족' when there is not enough review signal (< 2 reviews).
+     */
+    private function computeFitRisk(int $reviewCount, int $smallCount, int $largeCount): string
+    {
+        if ($reviewCount < 2) {
+            return '정보부족';
+        }
+        $offSize = $smallCount + $largeCount;
+        $ratio = $offSize / $reviewCount;
+        if ($ratio >= 0.5) {
+            return '높음';
+        }
+        if ($ratio >= 0.2) {
+            return '중간';
+        }
+        return '낮음';
     }
 
     /**

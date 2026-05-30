@@ -56,24 +56,6 @@ export function getAuthUser() {
   return authState.user;
 }
 
-export function mountAuthSlot(target) {
-  if (!target) return () => {};
-
-  const refresh = () => {
-    if (!document.documentElement.contains(target)) {
-      window.removeEventListener(AUTH_CHANGE_EVENT, refresh);
-      return;
-    }
-
-    renderAuthSlot(target);
-  };
-
-  window.addEventListener(AUTH_CHANGE_EVENT, refresh);
-  refresh();
-
-  return () => window.removeEventListener(AUTH_CHANGE_EVENT, refresh);
-}
-
 export function openAuthModal(mode = 'login') {
   activeMode = mode === 'register' ? 'register' : 'login';
   ensureModalRoot();
@@ -103,51 +85,29 @@ export async function logout() {
   showToast('로그아웃했어요.');
 }
 
-function renderAuthSlot(target) {
-  if (!authState.ready) {
-    target.innerHTML = `
-      <button type="button" class="pf-auth-trigger is-loading" disabled>
-        확인 중
-      </button>
-    `;
-    return;
-  }
+// Shared login/register submit — used by both the contextual modal and the
+// full-screen auth page so the two never diverge. Pure: performs the API call,
+// updates auth state, broadcasts the change, and returns the user. Callers own
+// their own UI (toast / close / navigate). Throws on failure.
+export async function submitAuth({ mode, email, password, displayName, gender }) {
+  const user = mode === 'register'
+    ? await register({ email, password, displayName, gender })
+    : await login({ email, password });
+  authSequence += 1;
+  authState.user = user;
+  authState.ready = true;
+  notifyAuthChange();
+  return user;
+}
 
-  if (!authState.user) {
-    target.innerHTML = `
-      <button type="button" class="pf-auth-trigger" data-auth-open>
-        로그인
-      </button>
-    `;
-
-    target.querySelector('[data-auth-open]')?.addEventListener('click', () => {
-      openAuthModal('login');
-    });
-    return;
-  }
-
-  const label = authState.user.displayName || authState.user.email;
-
-  target.innerHTML = `
-    <div class="pf-auth-user">
-      <span class="pf-auth-user-name">${escapeHtml(label)}</span>
-      <button type="button" class="pf-auth-logout" data-auth-logout>
-        로그아웃
-      </button>
-    </div>
-  `;
-
-  target.querySelector('[data-auth-logout]')?.addEventListener('click', async (event) => {
-    const button = event.currentTarget;
-    button.disabled = true;
-
-    try {
-      await logout();
-    } catch (error) {
-      button.disabled = false;
-      showToast(authErrorMessage(error));
-    }
-  });
+// Central session-expiry handler: clears cached auth so the navbar/gate stop
+// believing the user is logged in after a 401 on a gated call. Does NOT call the
+// logout API (the session is already gone server-side).
+export function clearAuthUser() {
+  authSequence += 1;
+  authState.user = null;
+  authState.ready = true;
+  notifyAuthChange();
 }
 
 function ensureModalRoot() {
@@ -199,8 +159,15 @@ function renderModal() {
 
       <form class="pf-auth-form" id="auth-form" novalidate>
         ${isRegister ? `
+          <div class="pf-auth-field">
+            <span>성별</span>
+            <div class="pf-auth-gender" role="radiogroup" aria-label="성별">
+              <button type="button" class="pf-auth-gender-opt" data-gender="male" role="radio" aria-checked="false">남성</button>
+              <button type="button" class="pf-auth-gender-opt" data-gender="female" role="radio" aria-checked="false">여성</button>
+            </div>
+          </div>
           <label class="pf-auth-field">
-            <span>닉네임</span>
+            <span>닉네임 <span class="pf-auth-opt">선택</span></span>
             <input
               type="text"
               name="displayName"
@@ -254,6 +221,17 @@ function renderModal() {
     });
   });
 
+  modalRoot.querySelectorAll('.pf-auth-gender-opt').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      modalRoot.querySelectorAll('.pf-auth-gender-opt').forEach((b) => {
+        b.classList.remove('on');
+        b.setAttribute('aria-checked', 'false');
+      });
+      btn.classList.add('on');
+      btn.setAttribute('aria-checked', 'true');
+    });
+  });
+
   modalRoot.querySelector('#auth-form')?.addEventListener('submit', handleSubmit);
 }
 
@@ -283,6 +261,7 @@ async function handleSubmit(event) {
   const email = String(data.get('email') || '').trim();
   const password = String(data.get('password') || '');
   const displayName = String(data.get('displayName') || '').trim();
+  const gender = form.querySelector('.pf-auth-gender-opt.on')?.dataset.gender || null;
 
   if (!email || !password) {
     showFormError(errorEl, '이메일과 비밀번호를 입력해 주세요.');
@@ -294,19 +273,18 @@ async function handleSubmit(event) {
     return;
   }
 
+  if (activeMode === 'register' && !gender) {
+    showFormError(errorEl, '성별을 선택해 주세요.');
+    return;
+  }
+
   submit.disabled = true;
   submit.textContent = activeMode === 'register' ? '가입 중...' : '로그인 중...';
   errorEl.hidden = true;
 
   try {
-    authState.user = activeMode === 'register'
-      ? await register({ email, password, displayName })
-      : await login({ email, password });
-    authSequence += 1;
-    authState.ready = true;
-
+    await submitAuth({ mode: activeMode, email, password, displayName, gender });
     closeAuthModal();
-    notifyAuthChange();
     showToast(activeMode === 'register' ? '회원가입이 완료됐어요.' : '로그인했어요.');
   } catch (error) {
     showFormError(errorEl, authErrorMessage(error));
@@ -328,14 +306,4 @@ function notifyAuthChange() {
       user: authState.user,
     },
   }));
-}
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (char) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#039;',
-  }[char]));
 }

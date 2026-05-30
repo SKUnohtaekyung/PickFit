@@ -22,10 +22,11 @@ final class AuthService
     /**
      * @return array<string, mixed>
      */
-    public function register(string $email, string $password, ?string $displayName): array
+    public function register(string $email, string $password, ?string $displayName, ?string $gender = null): array
     {
         $email = $this->normalizeEmail($email);
         $displayName = $this->normalizeDisplayName($displayName);
+        $gender = $this->normalizeGender($gender);
 
         if (strlen($password) < 8) {
             throw new InvalidArgumentException('Password must be at least 8 characters.');
@@ -38,7 +39,7 @@ final class AuthService
         }
 
         try {
-            $user = $users->create($email, password_hash($password, PASSWORD_DEFAULT), $displayName);
+            $user = $users->create($email, password_hash($password, PASSWORD_DEFAULT), $displayName, $gender);
         } catch (PDOException $exception) {
             if ($exception->getCode() !== '23000') {
                 throw $exception;
@@ -148,6 +149,15 @@ final class AuthService
         return $email;
     }
 
+    private function normalizeGender(?string $gender): ?string
+    {
+        if ($gender === null) {
+            return null;
+        }
+        $value = strtolower(trim($gender));
+        return in_array($value, ['male', 'female'], true) ? $value : null;
+    }
+
     private function normalizeDisplayName(?string $displayName): ?string
     {
         if ($displayName === null) {
@@ -177,6 +187,7 @@ final class AuthService
             'id' => (string) $user['publicId'],
             'email' => (string) $user['email'],
             'displayName' => $user['displayName'] ?? null,
+            'gender' => $user['gender'] ?? null,
             'role' => (string) $user['role'],
         ];
     }
@@ -191,6 +202,7 @@ final class AuthService
             'id' => (string) $user['publicId'],
             'email' => (string) $user['email'],
             'displayName' => $user['displayName'] ?? null,
+            'gender' => $user['gender'] ?? null,
         ];
     }
 }

@@ -27,6 +27,16 @@ export function adaptRecommendationResponse(apiData) {
 }
 
 export function adaptSavedOutfitEntry(entry, index = 0) {
+  // Idempotency guard: if the caller has already adapted this entry (its
+  // outfit carries the computed `comparison` block we set below), pass it
+  // through untouched. Double-calling this used to silently strip every
+  // backend-shape product field because the second invocation looked up
+  // `brandName/priceSale/heroImageUrl/…` against an already-UI-shape payload.
+  // See WORKLOG "Day 9 hotfix — saved 이중 어댑팅 회귀".
+  if (entry?.outfit && entry.outfit.comparison !== undefined) {
+    return entry;
+  }
+
   const outfit = entry?.outfit || null;
   const adaptedOutfit = outfit
     ? adaptOutfit({
@@ -54,6 +64,14 @@ export function adaptSavedOutfitEntry(entry, index = 0) {
 }
 
 function adaptOutfit(outfit, index) {
+  // Idempotency guard — `comparison` is computed below and never appears in
+  // raw backend responses, so its presence means we already adapted this
+  // outfit. Returning as-is prevents the field-name mismatch that strips
+  // every product field on a second pass.
+  if (outfit && outfit.comparison !== undefined) {
+    return outfit;
+  }
+
   const items = Array.isArray(outfit?.items) ? outfit.items : [];
   const adaptedItems = items.map((item) => adaptItem(item));
   const reasons = pickReasons(outfit);
@@ -88,6 +106,15 @@ function adaptItem(item) {
 
 function adaptProduct(product) {
   if (!product) return null;
+
+  // Idempotency guard — UI shape uses `brand`/`name`/`price`/`image`; backend
+  // shape uses `brandName`/`productName`/`priceSale`/`heroImageUrl`. If the
+  // caller already adapted this product, do not re-adapt or every field
+  // becomes empty (because the second pass looks up backend keys that no
+  // longer exist).
+  if (product.brand !== undefined && product.brandName === undefined) {
+    return product;
+  }
 
   const priceSale = numberOrZero(product.priceSale);
   const priceOriginal = numberOrZero(product.priceOriginal) || priceSale;
@@ -128,9 +155,10 @@ function adaptProduct(product) {
     rating: rawRating,
     reviewCount: rawCount,
     reviewSummary: rawSummary,
-    // Shipping and return policy require backend columns we don't surface yet —
-    // null means "render the row as 정보 부족" or hide it. Anything else would
-    // be invented and break trust UX.
+    // Review-grounded per-product fit risk from the backend (낮음/중간/높음/정보부족).
+    fitRisk: product.fitRisk || null,
+    // Shipping/return are per-mall and resolved at the external store (§16.5),
+    // not invented here — the comparison UI surfaces them as "구매처 확인".
     shipping: null,
     returnPolicy: null,
   };
@@ -157,42 +185,70 @@ function deriveTags(items) {
   return [...tags].slice(0, 4);
 }
 
+const FIT_RISK_RANK = { '낮음': 1, '중간': 2, '높음': 3 };
+
 function deriveComparison(items) {
   const fits = new Set();
   const materials = new Set();
   const seasons = new Set();
+  const highlights = [];
   let total = 0;
-  let fitRisk = '정보부족';
+  let ratingSum = 0;
+  let ratingCount = 0;
+  let reviewCount = 0;
+  let maxRisk = 0;         // review-grounded fit risk (worst severity across items)
+  let sawBackendRisk = false;
+  let fitFallbackRisk = 0; // fit-type fallback when no review-grounded risk
   let sawFitData = false;
 
   items.forEach((item) => {
-    if (!item.product) return;
-    if (item.product.fit && item.product.fit !== '-') {
-      fits.add(item.product.fit);
+    const product = item.product;
+    if (!product) return;
+
+    if (product.fit && product.fit !== '-') {
+      fits.add(product.fit);
       sawFitData = true;
-      if (item.product.fit === 'oversized' || item.product.fit === 'wide') {
-        fitRisk = '중간';
-      } else if (fitRisk === '정보부족') {
-        fitRisk = '낮음';
-      }
+      fitFallbackRisk = Math.max(fitFallbackRisk, (product.fit === 'oversized' || product.fit === 'wide') ? 2 : 1);
     }
-    if (item.product.material && item.product.material !== '-') materials.add(item.product.material);
-    if (item.product.season && item.product.season !== '-') seasons.add(item.product.season);
-    total += numberOrZero(item.product.price);
+    if (product.material && product.material !== '-') materials.add(product.material);
+    if (product.season && product.season !== '-') seasons.add(product.season);
+    total += numberOrZero(product.price);
+
+    if (product.fitRisk && FIT_RISK_RANK[product.fitRisk]) {
+      sawBackendRisk = true;
+      maxRisk = Math.max(maxRisk, FIT_RISK_RANK[product.fitRisk]);
+    }
+    if (typeof product.rating === 'number' && Number.isFinite(product.rating)) {
+      ratingSum += product.rating;
+      ratingCount += 1;
+    }
+    if (typeof product.reviewCount === 'number' && product.reviewCount > 0) {
+      reviewCount += product.reviewCount;
+    }
+    if (product.reviewSummary) highlights.push(product.reviewSummary);
   });
+
+  const rankToLabel = (rank) => Object.keys(FIT_RISK_RANK).find((k) => FIT_RISK_RANK[k] === rank) || '정보부족';
+  let fitRisk = '정보부족';
+  if (sawBackendRisk) fitRisk = rankToLabel(maxRisk);
+  else if (sawFitData) fitRisk = rankToLabel(fitFallbackRisk);
+
+  const avgRating = ratingCount ? Number((ratingSum / ratingCount).toFixed(1)) : null;
 
   return {
     price: total > 0 ? `${total.toLocaleString()}원` : '정보 부족',
-    fit: [...fits].join('/') || '정보 부족',
+    fit: [...fits].slice(0, 2).join('/') || '정보 부족',
     material: [...materials].slice(0, 2).join(' + ') || '정보 부족',
     season: [...seasons].slice(0, 2).join('/') || '정보 부족',
-    // Shipping / return / review summary are surfaced as 정보 부족 until the
-    // backend exposes the corresponding columns and the adapter is updated to
-    // propagate them. Hardcoded "무료 / 2일" / "리뷰 보강 중" was misleading.
-    shipping: '정보 부족',
-    returnFee: '정보 부족',
-    reviewSummary: '정보 부족',
-    fitRisk: sawFitData ? fitRisk : '정보부족',
+    fitRisk,
+    // Review block — consumed by the redesigned comparison UI.
+    rating: avgRating,
+    reviewCount,
+    reviewSummary: highlights[0] || (reviewCount > 0 ? `리뷰 ${reviewCount.toLocaleString()}개 반영` : '정보 부족'),
+    // Shipping / return are per-mall (resolved at the external store, §16.5).
+    // 'EXTERNAL' is a sentinel the UI renders as "구매처 확인" — never a fake number.
+    shipping: 'EXTERNAL',
+    returnFee: 'EXTERNAL',
   };
 }
 

@@ -9,6 +9,7 @@ import { resolveProductFromItem } from '../utils/resolvers.js';
 import { escapeHtml as e } from '../utils/escape.js';
 import { getRecommendationRun } from '../api/recommendations.js';
 import { adaptRecommendationResponse } from '../api/recommendationAdapter.js';
+import { getSourceProductIds, countSourceMatches } from '../utils/sourceProducts.js';
 
 const SLOT_LABELS = {
   top: '상의',
@@ -70,15 +71,20 @@ export async function renderResults(container, { navigateTo }) {
         state.setRecommendations(adapted.outfits, 'api-rehydrated');
         recommendations = adapted.outfits;
       } else {
-        showToast('이전 추천을 불러오지 못했어요. 새로 시작해 주세요.');
-        state.set('lastRunId', null);
-        navigateTo('onboarding');
+        // Run loaded but is incomplete — let the user start fresh.
+        renderRehydrateError(container, navigateTo, {
+          message: '이전 추천을 온전히 불러오지 못했어요.',
+          allowRetry: false,
+        });
         return;
       }
     } catch (_) {
-      showToast('이전 추천을 불러오지 못했어요. 새로 시작해 주세요.');
-      state.set('lastRunId', null);
-      navigateTo('onboarding');
+      // Transient fetch failure — keep lastRunId and offer a retry before
+      // discarding a still-valid run (e.g. a reload on a slow connection).
+      renderRehydrateError(container, navigateTo, {
+        message: '이전 추천을 불러오지 못했어요. 네트워크 상태를 확인하고 다시 시도해 주세요.',
+        allowRetry: true,
+      });
       return;
     }
   }
@@ -93,6 +99,10 @@ export async function renderResults(container, { navigateTo }) {
   const onboarding = state.get('onboarding') || {};
   const conditionTags = buildConditionTags(onboarding);
   const compareCount = Math.min(recommendations.length, 3);
+  // Trust UX: only count what actually appears in the response. Backend grants
+  // +5 score per sourceProductId but never guarantees inclusion. Computed here
+  // (after the rehydrate path reassigns `recommendations`) so refresh works too.
+  const sourceMatches = countSourceMatches(recommendations, getSourceProductIds());
 
   container.innerHTML = `
     <div class="rs-screen">
@@ -137,6 +147,7 @@ export async function renderResults(container, { navigateTo }) {
           ` : `
             <div class="rs-condition-empty">조건이 더 쌓이면 여기서 한눈에 정리해드릴게요.</div>
           `}
+          ${renderSourceMatchBadge(sourceMatches)}
         </div>
       </section>
 
@@ -148,7 +159,7 @@ export async function renderResults(container, { navigateTo }) {
 
   staggerChildren(container, '.rs-card', 80);
 
-  container.querySelector('#back-btn')?.addEventListener('click', () => navigateTo('landing'));
+  container.querySelector('#back-btn')?.addEventListener('click', () => navigateTo('home'));
   container.querySelector('#edit-btn')?.addEventListener('click', () => navigateTo('onboarding'));
 
   container.querySelector('#compare-all-btn')?.addEventListener('click', () => {
@@ -311,6 +322,18 @@ function savedHeartIcon() {
   `;
 }
 
+function renderSourceMatchBadge({ selected, alternatives }) {
+  if (selected === 0 && alternatives === 0) return '';
+  const chips = [];
+  if (selected > 0) {
+    chips.push(`<span class="rs-source-chip"><span class="rs-source-chip-dot" aria-hidden="true"></span>방금 분석한 ${selected}개 반영됨</span>`);
+  }
+  if (alternatives > 0) {
+    chips.push(`<span class="rs-source-chip rs-source-chip--alt">+ 후보 ${alternatives}개</span>`);
+  }
+  return `<div class="rs-source-tags" role="status">${chips.join('')}</div>`;
+}
+
 function renderRehydratePlaceholder() {
   return `
     <div class="rs-screen">
@@ -331,6 +354,45 @@ function renderRehydratePlaceholder() {
       </section>
     </div>
   `;
+}
+
+// Recovery state for a failed rehydrate (§15.10). Keeps the run id so "다시
+// 불러오기" can re-fetch; "새로 시작" clears it and returns to onboarding.
+function renderRehydrateError(container, navigateTo, { message, allowRetry }) {
+  container.innerHTML = `
+    <div class="rs-screen">
+      <header class="rs-header">
+        <div class="rs-header-bar">
+          <div class="rs-header-start">
+            <div class="rs-header-copy">
+              <p class="rs-header-kicker">PICKFIT</p>
+              <h1 class="rs-header-title">추천을 불러오지 못했어요</h1>
+            </div>
+          </div>
+        </div>
+      </header>
+      <section class="rs-summary">
+        <div class="rs-summary-card pf-card rs-rehydrate-error">
+          <div class="pf-badge-warning rs-rehydrate-badge">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <span>${e(message)}</span>
+          </div>
+          <div class="rs-rehydrate-actions">
+            ${allowRetry ? `<button type="button" id="rs-retry" class="pf-btn-primary">다시 불러오기</button>` : ''}
+            <button type="button" id="rs-restart" class="pf-btn-secondary rs-rehydrate-restart">새로 시작</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  `;
+
+  container.querySelector('#rs-retry')?.addEventListener('click', () => {
+    renderResults(container, { navigateTo });
+  });
+  container.querySelector('#rs-restart')?.addEventListener('click', () => {
+    state.set('lastRunId', null);
+    navigateTo('onboarding');
+  });
 }
 
 function buildConditionTags(onboarding) {

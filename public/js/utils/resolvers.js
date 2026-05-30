@@ -1,8 +1,9 @@
 // Shared outfit/product resolution used by results/detail/comparison/saved screens.
-// Lookup order: in-memory recommendations -> saved entries -> mock data.
+// Lookup order: in-memory recommendations → saved entries. No mock fallback —
+// when nothing matches the caller MUST handle null (e.g., redirect, empty state)
+// so silently-corrupted mock data never leaks into a real recommendation flow.
 
 import { state } from './state.js';
-import { getOutfit as getMockOutfit, getProduct as getMockProduct } from '../data/mock.js';
 
 export function resolveOutfit(outfitId) {
   if (!outfitId) return null;
@@ -11,7 +12,7 @@ export function resolveOutfit(outfitId) {
   if (fromRecs) return fromRecs;
   const savedEntry = state.findSavedEntry(outfitId);
   if (savedEntry?.outfit) return savedEntry.outfit;
-  return getMockOutfit(outfitId);
+  return null;
 }
 
 export function resolveOutfitFromSaved(savedEntry) {
@@ -21,6 +22,5 @@ export function resolveOutfitFromSaved(savedEntry) {
 
 export function resolveProductFromItem(item) {
   if (item?.product) return item.product;
-  if (item?.productId) return getMockProduct(item.productId);
   return null;
 }

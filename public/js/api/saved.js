@@ -4,15 +4,18 @@
 
 import { apiRequest } from './client.js';
 import { endpointStatus } from './contracts.js';
-import { adaptSavedOutfitEntry } from './recommendationAdapter.js';
 
 export const savedOutfitApiStatus = endpointStatus('savedOutfits');
 export const feedbackApiStatus = endpointStatus('feedback');
 
+// Returns raw backend shape. Adaptation to UI shape is the caller's job
+// (userActions.js::syncSavedFromApi) — single source of truth. Calling
+// adaptSavedOutfitEntry here too would double-adapt and silently strip every
+// backend-shape product field (brandName, priceSale, heroImageUrl, …).
+// See WORKLOG "Day 9 hotfix — saved 이중 어댑팅 회귀".
 export async function listSavedOutfits() {
   const payload = await apiRequest('/api/saved-outfits');
-  const entries = payload.data?.savedOutfits || [];
-  return entries.map(adaptSavedOutfitEntry);
+  return payload.data?.savedOutfits || [];
 }
 
 export async function saveOutfit(outfitId) {

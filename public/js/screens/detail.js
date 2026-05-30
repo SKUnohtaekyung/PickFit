@@ -3,11 +3,11 @@
 // ========================================
 
 import { state } from '../utils/state.js';
-import { OUTFITS, getProduct as getMockProduct } from '../data/mock.js';
 import { showToast } from '../utils/animations.js';
 import { persistFeedback, persistToggleSaved } from '../api/userActions.js';
 import { resolveOutfit, resolveProductFromItem } from '../utils/resolvers.js';
 import { escapeHtml as e } from '../utils/escape.js';
+import { fitLabel, seasonLabel } from '../utils/labels.js';
 
 const SLOT_LABELS = {
   top: '상의',
@@ -27,9 +27,17 @@ const FEEDBACK_OPTIONS = [
 
 export function renderDetail(container, { navigateTo }) {
   const outfitId = state.get('selectedOutfitId');
-  const outfit = resolveOutfit(outfitId) || OUTFITS[0];
+  const outfit = resolveOutfit(outfitId);
+  if (!outfit) {
+    // No mock fallback — bounce to results (or onboarding) so the user never
+    // sees a placeholder/mock outfit dressed up as a real recommendation.
+    showToast('이 코디를 더 이상 불러올 수 없어요. 다시 추천을 받아 주세요.');
+    const recs = state.get('recommendations') || [];
+    navigateTo(recs.length > 0 ? 'results' : 'onboarding');
+    return;
+  }
   const isSaved = state.isSaved(outfit.id);
-  const recommendations = state.get('recommendations') || OUTFITS;
+  const recommendations = state.get('recommendations') || [];
 
   const items = outfit.items.map((item) => ({
     ...item,
@@ -42,7 +50,7 @@ export function renderDetail(container, { navigateTo }) {
       <header class="dt-header">
         <div class="dt-header-bar">
           <div class="dt-header-start">
-            <button type="button" id="back-btn" class="dt-back-btn" aria-label="추천 결과로 돌아가기">
+            <button type="button" id="back-btn" class="dt-back-btn" aria-label="뒤로 가기">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M19 12H5"/>
                 <path d="m12 19-7-7 7-7"/>
@@ -158,7 +166,10 @@ export function renderDetail(container, { navigateTo }) {
     </div>
   `;
 
-  container.querySelector('#back-btn')?.addEventListener('click', () => navigateTo('results'));
+  // Back returns to the true origin (saved / comparison / results) instead of a
+  // hardcoded 'results' — which would bounce saved-browsers into onboarding when
+  // there is no fresh recommendation run in state.
+  container.querySelector('#back-btn')?.addEventListener('click', () => navigateTo(detailBackTarget()));
 
   container.querySelectorAll('[data-save-outfit]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -184,21 +195,16 @@ export function renderDetail(container, { navigateTo }) {
     button.addEventListener('click', () => {
       const productId = button.dataset.prod;
       const item = items.find((entry) => entry.product?.id === productId);
-      const product = item?.product || getMockProduct(productId);
+      const product = item?.product || null;
 
       if (product?.purchaseUrl && product.purchaseUrl !== '#') {
+        showToast('외부 쇼핑몰로 이동합니다.');
         window.open(product.purchaseUrl, '_blank', 'noopener,noreferrer');
         return;
       }
 
-      showToast('외부 쇼핑몰로 이동합니다.');
-    });
-  });
-
-  container.querySelectorAll('.dt-alt-btn').forEach((button) => {
-    button.addEventListener('click', () => {
-      const count = Number(button.dataset.count || '0');
-      showToast(count > 0 ? `대안 ${count}개는 다음 단계에서 확장할 예정이에요.` : '대안 상품을 준비 중이에요.');
+      // No real link yet — be honest instead of implying a navigation happened.
+      showToast('이 상품의 구매 링크를 준비 중이에요.');
     });
   });
 
@@ -229,9 +235,9 @@ function renderItemCard(item) {
           </div>
 
           <div class="dt-item-tags">
-            <span class="dt-item-chip">${e(product.fit)}</span>
-            <span class="dt-item-chip">${e(product.season)}</span>
-            <span class="dt-item-chip">두께 ${e(product.thickness)}</span>
+            ${product.fit && product.fit !== '-' ? `<span class="dt-item-chip">${e(fitLabel(product.fit))}</span>` : ''}
+            ${product.season && product.season !== '-' ? `<span class="dt-item-chip">${e(seasonLabel(product.season))}</span>` : ''}
+            ${product.thickness && product.thickness !== '-' ? `<span class="dt-item-chip">두께 ${e(product.thickness)}</span>` : ''}
           </div>
 
           ${product.sizeRun ? `
@@ -250,12 +256,6 @@ function renderItemCard(item) {
               </svg>
               구매 링크
             </button>
-
-            ${item.alternatives.length > 0 ? `
-              <button type="button" class="dt-alt-btn" data-slot="${e(item.slot)}" data-count="${item.alternatives.length}">
-                대안 ${item.alternatives.length}개
-              </button>
-            ` : ''}
           </div>
         </div>
       </div>
@@ -272,6 +272,16 @@ function renderItemCard(item) {
       </div>
     </article>
   `;
+}
+
+// Resolve a safe back destination from the screen the user actually arrived
+// from. Falls back to results (if a run exists) or landing — never a dead end.
+function detailBackTarget() {
+  const prev = state.get('previousScreen');
+  if (prev === 'saved' || prev === 'comparison') return prev;
+  const recs = state.get('recommendations') || [];
+  if (prev === 'results' && recs.length > 0) return 'results';
+  return recs.length > 0 ? 'results' : 'home';
 }
 
 function buildCompareIds(currentId, recommendations) {

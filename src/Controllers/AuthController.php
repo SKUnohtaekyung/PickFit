@@ -28,6 +28,7 @@ final class AuthController
                 $this->stringValue($data, 'email'),
                 $this->stringValue($data, 'password'),
                 $this->optionalStringValue($data, 'displayName'),
+                $this->optionalStringValue($data, 'gender'),
             );
         } catch (InvalidArgumentException $exception) {
             return $this->validationError($exception->getMessage());
@@ -93,6 +94,7 @@ final class AuthController
                 'id' => $user['id'],
                 'email' => $user['email'],
                 'displayName' => $user['displayName'] ?? null,
+                'gender' => $user['gender'] ?? null,
             ],
         ]);
     }

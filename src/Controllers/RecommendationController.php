@@ -47,6 +47,7 @@ final class RecommendationController
                 (int) $sessionUser['userId'],
                 $conditions,
                 $normalizedSourceIds,
+                is_string($sessionUser['gender'] ?? null) ? $sessionUser['gender'] : null,
             );
         } catch (InvalidArgumentException $exception) {
             return $this->validationError($exception->getMessage());

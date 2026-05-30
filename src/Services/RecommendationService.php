@@ -80,7 +80,7 @@ final class RecommendationService
      * @param array<int, string> $sourceProductIds
      * @return array<string, mixed>
      */
-    public function generate(int $userId, array $rawConditions, array $sourceProductIds): array
+    public function generate(int $userId, array $rawConditions, array $sourceProductIds, ?string $userGender = null): array
     {
         $conditions = $this->normalizeConditions($rawConditions);
         $budgetCap = $this->budgetCap($conditions['budget']);
@@ -89,6 +89,8 @@ final class RecommendationService
         $candidates = $this->products->findRecommendationCandidates(
             $conditions,
             $sourceProductIds,
+            $userId,
+            $userGender,
         );
 
         if (!$this->hasMinimumCoverage($candidates)) {
@@ -304,45 +306,49 @@ final class RecommendationService
      */
     private function assembleOutfits(array $candidates, array $conditions, ?int $totalBudget): array
     {
-        $strategies = [
-            $this->buildSituationFocused($candidates, $conditions, $totalBudget),
-            $this->buildBodyTypeFocused($candidates, $conditions, $totalBudget),
-            $this->buildValueFocused($candidates, $conditions, $totalBudget),
-        ];
-
+        // Sequential greedy with cross-outfit item exclusion: once a product is
+        // used in an earlier outfit it is removed from later slot pools, so the
+        // three picks are disjoint (no repeated items across cards). Pools are
+        // abundant per slot; if a slot is exhausted excludeUsed() falls back to
+        // the full pool (graceful) rather than dropping below 3 outfits.
+        $used = [];
         $finalOutfits = [];
-        $usedSignatures = [];
+        $signatures = [];
 
-        foreach ($strategies as $outfit) {
+        // Accept only outfits that are not byte-identical to one already chosen.
+        // The greedy exclusion makes the three strategy picks distinct in any real
+        // pool; this signature guard is the safety net for the coverage floor
+        // (a slot with ≤2 items), where excludeUsed has to reuse candidates.
+        $accept = function (?array $outfit) use (&$finalOutfits, &$used, &$signatures): bool {
             if ($outfit === null) {
-                continue;
+                return false;
             }
-
             $signature = $this->outfitSignature($outfit);
-            if (isset($usedSignatures[$signature])) {
-                $alternate = $this->buildAlternate($candidates, $conditions, $totalBudget, $usedSignatures);
-                if ($alternate !== null) {
-                    $altSignature = $this->outfitSignature($alternate);
-                    if (!isset($usedSignatures[$altSignature])) {
-                        $usedSignatures[$altSignature] = true;
-                        $finalOutfits[] = $alternate;
-                    }
-                }
-                continue;
+            if (isset($signatures[$signature])) {
+                return false;
             }
-
-            $usedSignatures[$signature] = true;
+            $signatures[$signature] = true;
+            $this->markUsed($used, $outfit);
             $finalOutfits[] = $outfit;
+            return true;
+        };
+
+        foreach (['situation', 'body', 'value'] as $strategy) {
+            $outfit = match ($strategy) {
+                'situation' => $this->buildSituationFocused($candidates, $conditions, $totalBudget, $used),
+                'body' => $this->buildBodyTypeFocused($candidates, $conditions, $totalBudget, $used),
+                'value' => $this->buildValueFocused($candidates, $conditions, $totalBudget, $used),
+            };
+            if (!$accept($outfit)) {
+                // Strategy collapsed to an already-used combo — try a distinct alternate.
+                $accept($this->buildAlternate($candidates, $conditions, $totalBudget, $used));
+            }
         }
 
-        if (count($finalOutfits) < 3) {
-            $extra = $this->buildAlternate($candidates, $conditions, $totalBudget, $usedSignatures);
-            if ($extra !== null) {
-                $extraSignature = $this->outfitSignature($extra);
-                if (!isset($usedSignatures[$extraSignature])) {
-                    $usedSignatures[$extraSignature] = true;
-                    $finalOutfits[] = $extra;
-                }
+        $guard = 0;
+        while (count($finalOutfits) < 3 && $guard++ < 6) {
+            if (!$accept($this->buildAlternate($candidates, $conditions, $totalBudget, $used))) {
+                break; // No distinct combination left — caller surfaces low coverage.
             }
         }
 
@@ -350,33 +356,87 @@ final class RecommendationService
     }
 
     /**
+     * @param array<string, bool> $used
+     * @param array<string, mixed> $outfit
+     */
+    private function markUsed(array &$used, array $outfit): void
+    {
+        foreach ($outfit['items'] ?? [] as $item) {
+            $publicId = $item['productPublicId'] ?? null;
+            if (is_string($publicId) && $publicId !== '') {
+                $used[$publicId] = true;
+            }
+        }
+    }
+
+    /**
+     * Remove already-used products from a slot pool. Falls back to the full pool
+     * if every candidate was used (preserves coverage over strict disjointness).
+     *
+     * @param array<int, array<string, mixed>> $pool
+     * @param array<string, bool> $used
+     * @return array<int, array<string, mixed>>
+     */
+    private function excludeUsed(array $pool, array $used): array
+    {
+        $filtered = array_values(array_filter(
+            $pool,
+            static fn (array $p): bool => !isset($used[(string) ($p['publicId'] ?? '')]),
+        ));
+        return $filtered === [] ? $pool : $filtered;
+    }
+
+    private function relevance(array $candidate): int
+    {
+        return (int) ($candidate['relevanceScore'] ?? 0);
+    }
+
+    /**
+     * Deterministic pseudo-random tiebreak by publicId hash — breaks the
+     * data_quality_score clustering that otherwise froze picks to DB order.
+     *
+     * @param array<string, mixed> $a
+     * @param array<string, mixed> $b
+     */
+    private function tiebreak(array $a, array $b): int
+    {
+        return crc32((string) ($a['publicId'] ?? '')) <=> crc32((string) ($b['publicId'] ?? ''));
+    }
+
+    /**
      * @param array<string, array<int, array<string, mixed>>> $candidates
      * @param array<string, mixed> $conditions
      * @return array<string, mixed>|null
      */
-    private function buildSituationFocused(array $candidates, array $conditions, ?int $totalBudget): ?array
+    private function buildSituationFocused(array $candidates, array $conditions, ?int $totalBudget, array $used): ?array
     {
         $situation = $conditions['situation'] ?? null;
+        // relevanceScore already blends situation(+4)/mood(+2)/color(+1); use it
+        // as the primary key (plus an extra situation nudge) with a deterministic
+        // crc32 tiebreak so uniform data_quality_score no longer freezes picks.
         $sortBySituation = function (array $a, array $b) use ($situation): int {
-            $aScore = $this->occasionMatchScore($a, $situation);
-            $bScore = $this->occasionMatchScore($b, $situation);
+            $aScore = $this->relevance($a) + $this->occasionMatchScore($a, $situation);
+            $bScore = $this->relevance($b) + $this->occasionMatchScore($b, $situation);
             if ($aScore !== $bScore) {
                 return $bScore <=> $aScore;
             }
-            return ($b['dataQualityScore'] ?? 0) <=> ($a['dataQualityScore'] ?? 0);
+            return $this->tiebreak($a, $b);
         };
 
-        $top = $this->pickFirst($candidates['top'], $sortBySituation);
-        $bottom = $this->pickFirst($candidates['bottom'], $sortBySituation);
-        $shoes = $this->pickFirst($candidates['shoes'], $sortBySituation);
+        $topPool = $this->excludeUsed($candidates['top'], $used);
+        $bottomPool = $this->excludeUsed($candidates['bottom'], $used);
+        $shoesPool = $this->excludeUsed($candidates['shoes'], $used);
+        $top = $this->pickFirst($topPool, $sortBySituation);
+        $bottom = $this->pickFirst($bottomPool, $sortBySituation);
+        $shoes = $this->pickFirst($shoesPool, $sortBySituation);
         if ($top === null || $bottom === null || $shoes === null) {
             return null;
         }
 
         $items = [
-            $this->itemFor('top', $top, $candidates['top']),
-            $this->itemFor('bottom', $bottom, $candidates['bottom']),
-            $this->itemFor('shoes', $shoes, $candidates['shoes']),
+            $this->itemFor('top', $top, $topPool),
+            $this->itemFor('bottom', $bottom, $bottomPool),
+            $this->itemFor('shoes', $shoes, $shoesPool),
         ];
 
         $situationLabel = $situation !== null ? (self::SITUATION_LABELS[$situation] ?? '선택한 상황') : '선택한 상황';
@@ -408,7 +468,7 @@ final class RecommendationService
      * @param array<string, array<int, array<string, mixed>>> $candidates
      * @param array<string, mixed> $conditions
      */
-    private function buildBodyTypeFocused(array $candidates, array $conditions, ?int $totalBudget): ?array
+    private function buildBodyTypeFocused(array $candidates, array $conditions, ?int $totalBudget, array $used): ?array
     {
         $bodyType = $conditions['bodyType'] ?? [];
         $sort = function (array $a, array $b) use ($bodyType): int {
@@ -417,20 +477,28 @@ final class RecommendationService
             if ($aScore !== $bScore) {
                 return $bScore <=> $aScore;
             }
-            return ($b['dataQualityScore'] ?? 0) <=> ($a['dataQualityScore'] ?? 0);
+            $aRel = $this->relevance($a);
+            $bRel = $this->relevance($b);
+            if ($aRel !== $bRel) {
+                return $bRel <=> $aRel;
+            }
+            return $this->tiebreak($a, $b);
         };
 
-        $top = $this->pickFirst($candidates['top'], $sort);
-        $bottom = $this->pickFirst($candidates['bottom'], $sort);
-        $shoes = $this->pickFirst($candidates['shoes'], $sort);
+        $topPool = $this->excludeUsed($candidates['top'], $used);
+        $bottomPool = $this->excludeUsed($candidates['bottom'], $used);
+        $shoesPool = $this->excludeUsed($candidates['shoes'], $used);
+        $top = $this->pickFirst($topPool, $sort);
+        $bottom = $this->pickFirst($bottomPool, $sort);
+        $shoes = $this->pickFirst($shoesPool, $sort);
         if ($top === null || $bottom === null || $shoes === null) {
             return null;
         }
 
         $items = [
-            $this->itemFor('top', $top, $candidates['top']),
-            $this->itemFor('bottom', $bottom, $candidates['bottom']),
-            $this->itemFor('shoes', $shoes, $candidates['shoes']),
+            $this->itemFor('top', $top, $topPool),
+            $this->itemFor('bottom', $bottom, $bottomPool),
+            $this->itemFor('shoes', $shoes, $shoesPool),
         ];
 
         $reasons = empty($bodyType)
@@ -456,7 +524,7 @@ final class RecommendationService
      * @param array<string, array<int, array<string, mixed>>> $candidates
      * @param array<string, mixed> $conditions
      */
-    private function buildValueFocused(array $candidates, array $conditions, ?int $totalBudget): ?array
+    private function buildValueFocused(array $candidates, array $conditions, ?int $totalBudget, array $used): ?array
     {
         $sort = function (array $a, array $b): int {
             $aPrice = (int) ($a['priceSale'] ?? PHP_INT_MAX);
@@ -464,20 +532,28 @@ final class RecommendationService
             if ($aPrice !== $bPrice) {
                 return $aPrice <=> $bPrice;
             }
-            return ($b['dataQualityScore'] ?? 0) <=> ($a['dataQualityScore'] ?? 0);
+            $aRel = $this->relevance($a);
+            $bRel = $this->relevance($b);
+            if ($aRel !== $bRel) {
+                return $bRel <=> $aRel;
+            }
+            return $this->tiebreak($a, $b);
         };
 
-        $top = $this->pickFirst($candidates['top'], $sort);
-        $bottom = $this->pickFirst($candidates['bottom'], $sort);
-        $shoes = $this->pickFirst($candidates['shoes'], $sort);
+        $topPool = $this->excludeUsed($candidates['top'], $used);
+        $bottomPool = $this->excludeUsed($candidates['bottom'], $used);
+        $shoesPool = $this->excludeUsed($candidates['shoes'], $used);
+        $top = $this->pickFirst($topPool, $sort);
+        $bottom = $this->pickFirst($bottomPool, $sort);
+        $shoes = $this->pickFirst($shoesPool, $sort);
         if ($top === null || $bottom === null || $shoes === null) {
             return null;
         }
 
         $items = [
-            $this->itemFor('top', $top, $candidates['top']),
-            $this->itemFor('bottom', $bottom, $candidates['bottom']),
-            $this->itemFor('shoes', $shoes, $candidates['shoes']),
+            $this->itemFor('top', $top, $topPool),
+            $this->itemFor('bottom', $bottom, $bottomPool),
+            $this->itemFor('shoes', $shoes, $shoesPool),
         ];
 
         $total = $this->sumPrice($items);
@@ -506,52 +582,42 @@ final class RecommendationService
      * @param array<string, bool> $usedSignatures
      * @param array<string, mixed> $conditions
      */
-    private function buildAlternate(array $candidates, array $conditions, ?int $totalBudget, array $usedSignatures): ?array
+    private function buildAlternate(array $candidates, array $conditions, ?int $totalBudget, array $used): ?array
     {
-        $topPool = $candidates['top'] ?? [];
-        $bottomPool = $candidates['bottom'] ?? [];
-        $shoesPool = $candidates['shoes'] ?? [];
+        // Exclusion-aware: pools already had earlier outfits' items removed, so
+        // the top of each filtered pool yields a fresh, non-overlapping combo.
+        $topPool = $this->excludeUsed($candidates['top'] ?? [], $used);
+        $bottomPool = $this->excludeUsed($candidates['bottom'] ?? [], $used);
+        $shoesPool = $this->excludeUsed($candidates['shoes'] ?? [], $used);
 
         if (empty($topPool) || empty($bottomPool) || empty($shoesPool)) {
             return null;
         }
 
-        foreach ($topPool as $topCandidate) {
-            foreach ($bottomPool as $bottomCandidate) {
-                foreach ($shoesPool as $shoesCandidate) {
-                    $items = [
-                        $this->itemFor('top', $topCandidate, $topPool),
-                        $this->itemFor('bottom', $bottomCandidate, $bottomPool),
-                        $this->itemFor('shoes', $shoesCandidate, $shoesPool),
-                    ];
-                    $signature = $this->outfitSignature(['items' => $items]);
-                    if (isset($usedSignatures[$signature])) {
-                        continue;
-                    }
+        $items = [
+            $this->itemFor('top', $topPool[0], $topPool),
+            $this->itemFor('bottom', $bottomPool[0], $bottomPool),
+            $this->itemFor('shoes', $shoesPool[0], $shoesPool),
+        ];
 
-                    $reasons = [
-                        '앞 두 추천과 겹치지 않는 조합으로 다양성을 더했어요.',
-                        '리뷰 품질이 가장 안정적인 아이템 위주로 골랐어요.',
-                    ];
+        $reasons = [
+            '앞 두 추천과 겹치지 않는 조합으로 다양성을 더했어요.',
+            '리뷰 품질이 가장 안정적인 아이템 위주로 골랐어요.',
+        ];
 
-                    return [
-                        'title' => '다른 분위기 옵션',
-                        'summary' => '조금 다른 톤으로 비교해볼 수 있는 보조 픽이에요.',
-                        'framingLabel' => '다른 분위기로 비교',
-                        'reasonText' => implode(' ', $reasons),
-                        'reasons' => $reasons,
-                        'risks' => $this->buildRisks($items, $conditions),
-                        'evidence' => $this->buildEvidence($items),
-                        'reviewEvidence' => $this->reviewEvidenceText($items),
-                        'totalPrice' => $this->sumPrice($items),
-                        'confidence' => $this->fitWithinBudget($items, $totalBudget) ? 0.5 : 0.42,
-                        'items' => $items,
-                    ];
-                }
-            }
-        }
-
-        return null;
+        return [
+            'title' => '다른 분위기 옵션',
+            'summary' => '조금 다른 톤으로 비교해볼 수 있는 보조 픽이에요.',
+            'framingLabel' => '다른 분위기로 비교',
+            'reasonText' => implode(' ', $reasons),
+            'reasons' => $reasons,
+            'risks' => $this->buildRisks($items, $conditions),
+            'evidence' => $this->buildEvidence($items),
+            'reviewEvidence' => $this->reviewEvidenceText($items),
+            'totalPrice' => $this->sumPrice($items),
+            'confidence' => $this->fitWithinBudget($items, $totalBudget) ? 0.5 : 0.42,
+            'items' => $items,
+        ];
     }
 
     /**
@@ -824,6 +890,9 @@ final class RecommendationService
                                 'colorFamily' => $product['colorFamily'] ?? null,
                                 'reviewHighlight' => $product['reviewHighlight'] ?? null,
                                 'reviewRating' => $product['reviewRating'] ?? null,
+                                'materialMain' => $product['materialMain'] ?? null,
+                                'reviewCount' => $product['reviewCount'] ?? null,
+                                'fitRisk' => $product['fitRisk'] ?? null,
                                 'productPageUrl' => $product['productPageUrl'] ?? null,
                             ] : null,
                             'alternativeProductIds' => $item['alternativeProductIds'] ?? [],
@@ -945,15 +1014,35 @@ final class RecommendationService
                 ? $outfit['alternativeProductIdsBySlot']
                 : [];
 
+            $usedProductIds = [];
             foreach (self::SLOTS as $slot) {
                 $primaryId = $primary[$slot] ?? null;
                 if (!is_string($primaryId) || $primaryId === '' || !isset($candidatesByPublicId[$primaryId])) {
                     continue;
                 }
                 $product = $candidatesByPublicId[$primaryId];
+
+                // Guard: a product must not occupy two slots of one outfit (would
+                // render as e.g. identical top & bottom), and a slot may only hold
+                // a product whose category matches it. Either violation means the
+                // model's pick is unusable → return null so the caller falls back
+                // to the deterministic assembler.
+                if (isset($usedProductIds[$primaryId])) {
+                    return null;
+                }
+                if (($product['categoryMain'] ?? null) !== $slot) {
+                    return null;
+                }
+                $usedProductIds[$primaryId] = true;
+
                 $altIds = [];
                 foreach ($alternatives[$slot] ?? [] as $altId) {
-                    if (is_string($altId) && $altId !== '' && isset($candidatesByPublicId[$altId])) {
+                    if (is_string($altId) && $altId !== '' && isset($candidatesByPublicId[$altId])
+                        && $altId !== $primaryId
+                        && !isset($usedProductIds[$altId])
+                        && ($candidatesByPublicId[$altId]['categoryMain'] ?? null) === $slot
+                        && !in_array($altId, $altIds, true)
+                    ) {
                         $altIds[] = $altId;
                     }
                     if (count($altIds) >= 3) {

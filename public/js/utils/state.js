@@ -2,6 +2,8 @@
 // PickFit Global State Manager
 // ========================================
 
+import { clearSourceProductIds } from './sourceProducts.js';
+
 const STATE_KEY = 'pickfit_state';
 const SERVER_BACKED_KEYS = ['recommendations', 'saved', 'feedback'];
 
@@ -152,6 +154,9 @@ class StateManager {
     this._state.dataSources.recommendations = 'empty';
     this._state.selectedOutfitId = null;
     this._state.compareOutfitIds = [];
+    // Source product accumulator lives in sessionStorage (separate from
+    // pickfit_state) so the "방금 분석한" intent doesn't leak into a fresh run.
+    clearSourceProductIds();
     this._save();
     this._notify('onboarding');
   }

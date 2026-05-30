@@ -1,12 +1,17 @@
 // ========================================
-// PickFit HANGER HOOK bottom navigation
+// PickFit HANGER HOOK bottom navigation — 3 fixed tabs
 // ========================================
+// Three independent destinations: 홈(home) · 추천(landing) · 저장(saved).
+// The center hook is ALWAYS "추천" (no more morphing into "저장한 코디"/"다시
+// 추천"). Tapping it goes to the 추천 screen; the actual recommendation flow is
+// started from that screen's in-flow CTA, not from the nav. The center keeps a
+// color cue when a situation is selected on the 추천 screen.
 
 import { state } from '../utils/state.js';
 
 const TAB_ITEMS = [
   {
-    id: 'landing',
+    id: 'home',
     label: '홈',
     icon: 'img/logo/image 77.png',
     activeIcon: 'img/logo/image 78.png',
@@ -19,12 +24,15 @@ const TAB_ITEMS = [
   },
 ];
 
+// Screens that belong to the 추천 journey (center tab is the active section).
+const RECOMMEND_SECTION = ['landing', 'onboarding', 'loading', 'results', 'comparison', 'detail'];
+
 export function renderNavbar(currentScreen, onNavigate) {
   const nav = document.getElementById('bottom-nav');
   if (!nav) return;
 
   const centerCta = getCenterCta(currentScreen);
-  const tabState = getTabState(currentScreen, centerCta);
+  const tabState = getTabState(currentScreen);
 
   nav.innerHTML = `
     <div class="pf-hook-nav">
@@ -53,7 +61,6 @@ export function renderNavbar(currentScreen, onNavigate) {
             <img src="${centerCta.icon}" alt="" />
           </span>
           <span class="pf-hook-main-label">${centerCta.label}</span>
-          ${centerCta.hint ? `<span class="pf-hook-main-hint">${centerCta.hint}</span>` : ''}
         </button>
       </div>
     </div>
@@ -66,7 +73,7 @@ export function renderNavbar(currentScreen, onNavigate) {
   });
 
   nav.querySelector('#nav-main-cta')?.addEventListener('click', () => {
-    handleMainCta(currentScreen, onNavigate);
+    onNavigate('landing');
   });
 }
 
@@ -112,83 +119,27 @@ function renderCenterHookShape() {
 function getCenterCta(currentScreen) {
   const onboarding = state.get('onboarding');
   const hasSituation = Boolean(onboarding?.situation);
+  const base = { label: '추천', icon: 'img/logo/image 75.png' };
 
   if (currentScreen === 'landing') {
-    if (hasSituation) {
-      return {
-        label: '코디 추천 받기',
-        icon: 'img/logo/image 75.png',
-        iconTone: 'is-white',
-        hint: '',
-        variant: 'is-active',
-      };
-    }
-
-    return {
-      label: '코디 추천 받기',
-      icon: 'img/logo/image 75.png',
-      iconTone: 'is-blue',
-      hint: '상황 선택 후 시작',
-      variant: 'is-idle',
-    };
+    // Preserve the situation-selected color cue: idle → active fill.
+    return hasSituation
+      ? { ...base, iconTone: 'is-white', variant: 'is-active' }
+      : { ...base, iconTone: 'is-blue', variant: 'is-idle' };
   }
 
-  if (currentScreen === 'saved') {
-    return {
-      label: '저장한 코디',
-      icon: 'img/logo/image 79.png',
-      iconTone: 'is-blue',
-      hint: '',
-      variant: 'is-secondary',
-    };
+  if (RECOMMEND_SECTION.includes(currentScreen)) {
+    // results / comparison / detail — 추천 is the active section.
+    return { ...base, iconTone: 'is-white', variant: 'is-active' };
   }
 
+  // home / saved — 추천 is a reachable tab, not the current section.
+  return { ...base, iconTone: 'is-blue', variant: 'is-secondary' };
+}
+
+function getTabState(currentScreen) {
   return {
-    label: '다시 추천',
-    icon: 'img/logo/image 75.png',
-    iconTone: 'is-blue',
-    hint: '',
-    variant: 'is-secondary',
+    home: currentScreen === 'home' ? 'blue' : 'dark',
+    saved: currentScreen === 'saved' ? 'blue' : 'dark',
   };
-}
-
-function getTabState(currentScreen, centerCta) {
-  if (currentScreen === 'saved') {
-    return { home: 'dark', saved: 'blue' };
-  }
-
-  if (currentScreen === 'landing' && centerCta.variant === 'is-idle') {
-    return { home: 'blue', saved: 'dark' };
-  }
-
-  return { home: 'dark', saved: 'dark' };
-}
-
-function handleMainCta(currentScreen, onNavigate) {
-  const onboarding = state.get('onboarding');
-  const hasSituation = Boolean(onboarding?.situation);
-
-  if (currentScreen === 'landing') {
-    if (!hasSituation) {
-      document.getElementById('situation-section')
-        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      return;
-    }
-
-    const draft = {
-      situation: onboarding?.situation || null,
-    };
-
-    state.resetOnboarding();
-    state.update('onboarding', (next) => ({
-      ...next,
-      situation: draft.situation,
-      freeText: '',
-    }));
-    onNavigate('onboarding');
-    return;
-  }
-
-  state.resetOnboarding();
-  onNavigate('landing');
 }
