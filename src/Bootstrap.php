@@ -58,6 +58,20 @@ final class Bootstrap
     {
         date_default_timezone_set($this->config->get('APP_TIMEZONE', 'Asia/Seoul') ?? 'Asia/Seoul');
 
+        // Long foreground calls (OpenAI recommendations, Playwright crawl) can run
+        // up to OPENAI_TIMEOUT_SECONDS / CRAWL_TIMEOUT_SECONDS. The PHP web SAPI's
+        // default 30s max_execution_time would kill the request mid-call — and with
+        // display_errors on, the HTML fatal leaks into the body and breaks the JSON
+        // response ("Server response was not valid JSON"). Give enough headroom, and
+        // route PHP errors to the log instead of the response so replies stay JSON.
+        $externalTimeout = max(
+            $this->config->openAiTimeoutSeconds(),
+            (int) ($this->config->get('CRAWL_TIMEOUT_SECONDS', '45') ?? '45'),
+        );
+        set_time_limit($externalTimeout + 25);
+        ini_set('display_errors', '0');
+        ini_set('log_errors', '1');
+
         $csrf = new CsrfService();
 
         $router = new Router();
