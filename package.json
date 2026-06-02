@@ -1,6 +1,6 @@
 {
   "scripts": {
-    "dev": "http-server . -p 8000 -c-1",
+    "dev": "php -S 127.0.0.1:8000 -t public public/index.php",
     "tailwind:watch": "tailwindcss -i ./public/css/input.css -o ./public/css/app.css --watch",
     "tailwind:build": "tailwindcss -i ./public/css/input.css -o ./public/css/app.css --minify",
     "build": "npm run tailwind:build"

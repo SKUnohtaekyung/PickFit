@@ -98,13 +98,16 @@ PickFit은 일반적인 상품 탐색 앱이 아니라 **패션 구매 결정을
 
 ## 실행 방법
 
-정적 SPA 프로토타입이므로 별도 빌드 없이 로컬 서버로 실행할 수 있습니다.
+PHP 백엔드 + MySQL이 필요합니다. (정적 서버로 루트를 열면 동작하지 않습니다 — 앱은 `public/`에 있고 PHP 프론트 컨트롤러가 서빙합니다.)
+
+1. MySQL을 실행하고 `pickfit` 데이터베이스를 준비합니다. (마이그레이션 적용, 카탈로그는 `database/seeds/musinsa_catalog_seed.sql` 로 복원 가능)
+2. 앱 서버를 시작합니다:
 
 ```bash
-python -m http.server 8000
+npm run dev   # php -S 127.0.0.1:8000 -t public public/index.php
 ```
 
-브라우저에서 아래 주소를 엽니다.
+3. 브라우저에서 아래 주소를 엽니다.
 
 ```text
 http://127.0.0.1:8000
