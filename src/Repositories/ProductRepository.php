@@ -57,7 +57,11 @@ final class ProductRepository
             $params['cursor'] = $cursor;
         }
 
-        $sql = 'SELECT * FROM products WHERE ' . implode(' AND ', $conditions)
+        // 목록 매퍼(toListItem)가 실제로 쓰는 컬럼만 조회 — 와이드 테이블 전체 SELECT 비용 절감.
+        // WHERE/ORDER 절이 참조하는 컬럼은 SELECT 목록에 없어도 동작하므로 영향 없음.
+        $columns = 'public_id, brand_name, product_name, category_main, category_sub, '
+            . 'price_original, price_sale, hero_image_url, fit_type, seasonality, stock_status';
+        $sql = 'SELECT ' . $columns . ' FROM products WHERE ' . implode(' AND ', $conditions)
             . ' ORDER BY public_id ASC LIMIT :limit';
 
         $statement = $this->pdo->prepare($sql);
