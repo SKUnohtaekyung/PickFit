@@ -7,6 +7,7 @@
 
 import { submitAuth } from '../components/authModal.js';
 import { authErrorMessage } from '../api/auth.js';
+import { escapeAttr } from '../utils/escape.js';
 
 const COPY = {
   login: {
@@ -187,8 +188,4 @@ export function renderAuth(container, { navigateTo, onAuthSuccess, mode } = {}) 
   }
 
   render();
-}
-
-function escapeAttr(value) {
-  return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

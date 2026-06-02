@@ -9,6 +9,7 @@ import { getAuthUser, logout } from '../components/authModal.js';
 import { state } from '../utils/state.js';
 import { showToast } from '../utils/animations.js';
 import { authErrorMessage } from '../api/auth.js';
+import { escapeText } from '../utils/escape.js';
 
 function resetClientState() {
   // resetOnboarding clears onboarding draft, recommendations, selectedOutfitId,
@@ -71,8 +72,4 @@ export function renderAccount(container, { navigateTo } = {}) {
   });
 
   requestAnimationFrame(() => container.querySelector('.acc-name')?.focus?.());
-}
-
-function escapeText(value) {
-  return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

@@ -11,6 +11,7 @@ import { state } from '../utils/state.js';
 import { getAuthUser } from '../components/authModal.js';
 import { SITUATIONS } from '../data/enums.js';
 import { resolveProductFromItem, resolveOutfitFromSaved } from '../utils/resolvers.js';
+import { escapeText, escapeAttr } from '../utils/escape.js';
 
 export function renderHome(container, { navigateTo } = {}) {
   const user = getAuthUser();
@@ -143,11 +144,4 @@ function greetingName(user) {
   const email = user?.email?.trim();
   if (email) return email.split('@')[0];
   return '회원';
-}
-
-function escapeText(value) {
-  return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-function escapeAttr(value) {
-  return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

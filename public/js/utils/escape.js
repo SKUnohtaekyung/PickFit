@@ -36,3 +36,18 @@ export function escapeHtml(value) {
  * Alias to keep call sites short: `${e(product.name)}`
  */
 export const e = escapeHtml;
+
+/**
+ * 텍스트 노드용 부분 이스케이프(기존 화면 구현과 동일: & < > 만 변환).
+ * 따옴표는 변환하지 않아 기존 출력 결과를 그대로 보존한다.
+ */
+export function escapeText(value) {
+  return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * 큰따옴표 속성값용 부분 이스케이프(기존 화면 구현과 동일: & " < > 변환).
+ */
+export function escapeAttr(value) {
+  return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}

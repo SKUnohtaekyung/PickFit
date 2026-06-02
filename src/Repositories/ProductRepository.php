@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace PickFit\Repositories;
 
 use PDO;
+use PickFit\Support\FitRisk;
 use PickFit\Support\JsonColumn;
 
 final class ProductRepository
@@ -576,33 +577,12 @@ final class ProductRepository
             'reviewHighlight' => $row['review_highlight'] === null ? null : (string) $row['review_highlight'],
             'materialMain' => $row['material_main'] ?? null,
             'reviewCount' => isset($row['review_count']) ? (int) $row['review_count'] : 0,
-            'fitRisk' => $this->computeFitRisk(
+            'fitRisk' => FitRisk::band(
                 isset($row['review_count']) ? (int) $row['review_count'] : 0,
                 isset($row['size_runs_small']) ? (int) $row['size_runs_small'] : 0,
                 isset($row['size_runs_large']) ? (int) $row['size_runs_large'] : 0,
             ),
         ];
-    }
-
-    /**
-     * Review-grounded per-product fit risk for the comparison UI.
-     * Bands by the share of reviewers who reported the item ran small/large.
-     * Returns '정보부족' when there is not enough review signal (< 2 reviews).
-     */
-    private function computeFitRisk(int $reviewCount, int $smallCount, int $largeCount): string
-    {
-        if ($reviewCount < 2) {
-            return '정보부족';
-        }
-        $offSize = $smallCount + $largeCount;
-        $ratio = $offSize / $reviewCount;
-        if ($ratio >= 0.5) {
-            return '높음';
-        }
-        if ($ratio >= 0.2) {
-            return '중간';
-        }
-        return '낮음';
     }
 
     /**

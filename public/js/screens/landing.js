@@ -8,6 +8,7 @@
 
 import { SITUATIONS } from '../data/enums.js';
 import { state } from '../utils/state.js';
+import { escapeText } from '../utils/escape.js';
 
 export function renderLanding(container, { navigateTo } = {}) {
   const onboarding = state.get('onboarding');
@@ -193,8 +194,4 @@ function setAriaCurrent(el, on) {
 
 function getSituationLabel(id) {
   return SITUATIONS.find((item) => item.id === id)?.label || '선택한 상황';
-}
-
-function escapeText(value) {
-  return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

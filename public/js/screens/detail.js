@@ -7,6 +7,7 @@ import { showToast } from '../utils/animations.js';
 import { persistFeedback, persistToggleSaved } from '../api/userActions.js';
 import { resolveOutfit, resolveProductFromItem } from '../utils/resolvers.js';
 import { escapeHtml as e } from '../utils/escape.js';
+import { renderSaveIcon, renderSaveText, syncSaveControls } from '../components/saveControls.js';
 import { fitLabel, seasonLabel } from '../utils/labels.js';
 
 const SLOT_LABELS = {
@@ -174,7 +175,7 @@ export function renderDetail(container, { navigateTo }) {
   container.querySelectorAll('[data-save-outfit]').forEach((button) => {
     button.addEventListener('click', () => {
       const justSaved = state.toggleSaved(outfit.id, outfit);
-      syncDetailSaveControls(container, outfit.id);
+      syncSaveControls(container, outfit.id);
       showToast(justSaved ? '코디를 저장했어요.' : '저장을 해제했어요.');
       persistToggleSaved(outfit, justSaved).then((result) => {
         if (result.status === 'unauthenticated') {
@@ -289,35 +290,6 @@ function buildCompareIds(currentId, recommendations) {
   return [...new Set(ids)].slice(0, 3);
 }
 
-function syncDetailSaveControls(root, outfitId) {
-  const isSaved = state.isSaved(outfitId);
-
-  root.querySelectorAll(`[data-save-outfit="${outfitId}"]`).forEach((button) => {
-    const variant = button.dataset.saveVariant;
-    button.classList.toggle('is-saved', isSaved);
-    button.setAttribute('aria-label', isSaved ? '저장됨' : '코디 저장');
-    button.setAttribute('aria-pressed', String(isSaved));
-
-    if (variant === 'icon') {
-      button.innerHTML = renderSaveIcon(isSaved);
-      return;
-    }
-
-    button.innerHTML = renderSaveText(isSaved);
-  });
-}
-
-function renderSaveIcon(isSaved) {
-  return isSaved ? savedHeartIcon() : heartIcon();
-}
-
-function renderSaveText(isSaved) {
-  return `
-    ${isSaved ? savedHeartIcon() : heartIcon()}
-    <span>${isSaved ? '저장됨' : '코디 저장'}</span>
-  `;
-}
-
 function showFeedbackSheet() {
   const overlay = document.createElement('div');
   overlay.className = 'pf-dim';
@@ -401,20 +373,4 @@ function showFeedbackSheet() {
 
     closeSheet();
   });
-}
-
-function heartIcon() {
-  return `
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-    </svg>
-  `;
-}
-
-function savedHeartIcon() {
-  return `
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-    </svg>
-  `;
 }

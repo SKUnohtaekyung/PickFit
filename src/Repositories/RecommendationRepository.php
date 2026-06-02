@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace PickFit\Repositories;
 
 use PDO;
+use PickFit\Support\FitRisk;
 use PickFit\Support\JsonColumn;
 use PickFit\Support\PublicId;
 
@@ -244,7 +245,7 @@ final class RecommendationRepository
                 'reviewHighlight' => $row['review_highlight'] === null ? null : (string) $row['review_highlight'],
                 'reviewRating' => $row['review_rating'] === null ? null : (float) $row['review_rating'],
                 'reviewCount' => isset($row['review_count']) ? (int) $row['review_count'] : 0,
-                'fitRisk' => $this->fitRiskBand(
+                'fitRisk' => FitRisk::band(
                     isset($row['review_count']) ? (int) $row['review_count'] : 0,
                     isset($row['size_runs_small']) ? (int) $row['size_runs_small'] : 0,
                     isset($row['size_runs_large']) ? (int) $row['size_runs_large'] : 0,
@@ -255,23 +256,4 @@ final class RecommendationRepository
         ], $rows);
     }
 
-    /**
-     * Review-grounded per-product fit risk, mirroring
-     * ProductRepository::computeFitRisk so saved/re-fetched outfits show the same
-     * comparison value as a fresh run.
-     */
-    private function fitRiskBand(int $reviewCount, int $smallCount, int $largeCount): string
-    {
-        if ($reviewCount < 2) {
-            return '정보부족';
-        }
-        $ratio = ($smallCount + $largeCount) / $reviewCount;
-        if ($ratio >= 0.5) {
-            return '높음';
-        }
-        if ($ratio >= 0.2) {
-            return '중간';
-        }
-        return '낮음';
-    }
 }
