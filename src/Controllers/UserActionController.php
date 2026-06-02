@@ -9,9 +9,12 @@ use PickFit\Http\Request;
 use PickFit\Http\Response;
 use PickFit\Repositories\FeedbackRepository;
 use PickFit\Repositories\SavedOutfitRepository;
+use PickFit\Support\RespondsWithJson;
 
 final class UserActionController
 {
+    use RespondsWithJson;
+
     private const ALLOWED_FEEDBACK_TYPES = [
         'liked',
         'not_my_taste',
@@ -267,40 +270,5 @@ final class UserActionController
             return $this->error('validation_failed', 'note must be 500 characters or fewer.', 422);
         }
         return $trimmed;
-    }
-
-    /**
-     * @param array<string, mixed> $data
-     */
-    private function success(array $data, int $status = 200): Response
-    {
-        return Response::json([
-            'ok' => true,
-            'data' => $data,
-            'meta' => $this->meta(),
-        ], $status);
-    }
-
-    private function error(string $code, string $message, int $status): Response
-    {
-        return Response::json([
-            'ok' => false,
-            'error' => [
-                'code' => $code,
-                'message' => $message,
-            ],
-            'meta' => $this->meta(),
-        ], $status);
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function meta(): array
-    {
-        return [
-            'requestId' => 'req_' . bin2hex(random_bytes(8)),
-            'serverTime' => date(DATE_ATOM),
-        ];
     }
 }

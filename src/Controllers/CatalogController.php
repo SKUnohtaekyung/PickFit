@@ -9,9 +9,12 @@ use PickFit\Http\Request;
 use PickFit\Http\Response;
 use PickFit\Repositories\ProductRepository;
 use PickFit\Services\CrawlerService;
+use PickFit\Support\RespondsWithJson;
 
 final class CatalogController
 {
+    use RespondsWithJson;
+
     public function __construct(
         private readonly ProductRepository $products,
         private readonly ?CrawlerService $crawler = null,
@@ -144,38 +147,6 @@ final class CatalogController
                     'message' => $job['errorMessage'] ?? null,
                 ]
                 : null,
-        ];
-    }
-
-    private function error(string $code, string $message, int $status): Response
-    {
-        return Response::json([
-            'ok' => false,
-            'error' => ['code' => $code, 'message' => $message],
-            'meta' => $this->meta(),
-        ], $status);
-    }
-
-    /**
-     * @param array<string, mixed> $data
-     */
-    private function success(array $data): Response
-    {
-        return Response::json([
-            'ok' => true,
-            'data' => $data,
-            'meta' => $this->meta(),
-        ]);
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function meta(): array
-    {
-        return [
-            'requestId' => 'req_' . bin2hex(random_bytes(8)),
-            'serverTime' => date(DATE_ATOM),
         ];
     }
 
