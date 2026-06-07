@@ -89,6 +89,19 @@ final class UserRepository
         $statement->execute(['id' => $id]);
     }
 
+    // 프로필 편집: 닉네임/성별을 갱신한다. (이메일·비밀번호는 별도 흐름)
+    public function updateProfile(int $id, ?string $displayName, ?string $gender): void
+    {
+        $statement = $this->pdo->prepare(
+            'UPDATE users SET display_name = :displayName, gender = :gender WHERE id = :id',
+        );
+        $statement->execute([
+            'displayName' => $displayName,
+            'gender' => $gender,
+            'id' => $id,
+        ]);
+    }
+
     /**
      * @param array<string, mixed> $row
      * @return array<string, mixed>

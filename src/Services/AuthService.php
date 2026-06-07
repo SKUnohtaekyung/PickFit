@@ -71,6 +71,38 @@ final class AuthService
         return $this->toPublicUser($user);
     }
 
+    /**
+     * 로그인된 사용자의 프로필(닉네임·성별)을 수정한다.
+     * DB를 갱신한 뒤 세션의 사용자 정보도 같은 값으로 맞춰 /me·navbar가 즉시 반영되게 한다.
+     * (세션 id는 재발급하지 않음 — 권한 상승이 아니라 단순 프로필 변경이므로)
+     *
+     * @return array<string, mixed> 갱신된 공개 사용자 정보
+     */
+    public function updateProfile(?string $displayName, ?string $gender): array
+    {
+        $this->ensureSessionStarted();
+        $sessionUser = $_SESSION[self::SESSION_KEY] ?? null;
+        if (!is_array($sessionUser) || !isset($sessionUser['userId'])) {
+            throw new RuntimeException('Login required.');
+        }
+
+        $displayName = $this->normalizeDisplayName($displayName);
+        $gender = $this->normalizeGender($gender);
+
+        $this->users()->updateProfile((int) $sessionUser['userId'], $displayName, $gender);
+
+        $sessionUser['displayName'] = $displayName;
+        $sessionUser['gender'] = $gender;
+        $_SESSION[self::SESSION_KEY] = $sessionUser;
+
+        return [
+            'id' => (string) $sessionUser['id'],
+            'email' => (string) $sessionUser['email'],
+            'displayName' => $displayName,
+            'gender' => $gender,
+        ];
+    }
+
     public function logout(): void
     {
         $this->ensureSessionStarted();

@@ -4,10 +4,10 @@
 
 import { state } from '../utils/state.js';
 import { showToast } from '../utils/animations.js';
-import { persistFeedback, persistToggleSaved } from '../api/userActions.js';
+import { persistFeedback } from '../api/userActions.js';
 import { resolveOutfit, resolveProductFromItem } from '../utils/resolvers.js';
 import { escapeHtml as e } from '../utils/escape.js';
-import { renderSaveIcon, renderSaveText, syncSaveControls } from '../components/saveControls.js';
+import { renderSaveIcon, renderSaveText, toggleSaveFromClick } from '../components/saveControls.js';
 import { fitLabel, seasonLabel } from '../utils/labels.js';
 
 const SLOT_LABELS = {
@@ -174,16 +174,8 @@ export function renderDetail(container, { navigateTo }) {
 
   container.querySelectorAll('[data-save-outfit]').forEach((button) => {
     button.addEventListener('click', () => {
-      const justSaved = state.toggleSaved(outfit.id, outfit);
-      syncSaveControls(container, outfit.id);
-      showToast(justSaved ? '코디를 저장했어요.' : '저장을 해제했어요.');
-      persistToggleSaved(outfit, justSaved).then((result) => {
-        if (result.status === 'unauthenticated') {
-          showToast('로그인하면 저장이 동기화돼요.');
-        } else if (result.status === 'api-error') {
-          showToast('저장이 서버에 반영되지 못했어요. 잠시 후 다시 시도해 주세요.');
-        }
-      });
+      // 낙관적 토글·UI 동기화·서버 반영·실패 롤백 + 진행 중 재클릭 가드를 한 번에 처리.
+      toggleSaveFromClick(container, outfit);
     });
   });
 
@@ -249,14 +241,25 @@ function renderItemCard(item) {
           ` : ''}
 
           <div class="dt-item-actions">
-            <button type="button" class="dt-purchase-btn" data-prod="${e(product.id)}">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-                <polyline points="15 3 21 3 21 9"/>
-                <line x1="10" x2="21" y1="14" y2="3"/>
-              </svg>
-              구매 링크
-            </button>
+            ${product.purchaseUrl && product.purchaseUrl !== '#'
+              // 실제 구매 링크가 있을 때만 활성 버튼. 클릭 시 외부 쇼핑몰로 이동.
+              ? `<button type="button" class="dt-purchase-btn" data-prod="${e(product.id)}">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                    <polyline points="15 3 21 3 21 9"/>
+                    <line x1="10" x2="21" y1="14" y2="3"/>
+                  </svg>
+                  구매 링크
+                </button>`
+              // 링크가 아직 없으면 "눌러도 아무 일 없는" 버튼 대신, 준비 중임을
+              // 시각적으로(흐린 비활성 스타일 + 시계 아이콘) 분명히 보여준다.
+              : `<button type="button" class="dt-purchase-btn is-pending" data-prod="${e(product.id)}" aria-disabled="true" title="구매 링크 준비 중이에요">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="9"/>
+                    <path d="M12 7v5l3 2"/>
+                  </svg>
+                  구매 링크 준비 중
+                </button>`}
           </div>
         </div>
       </div>

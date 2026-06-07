@@ -103,13 +103,17 @@ final class SavedOutfitRepository
      */
     public function listForUser(int $userId): array
     {
+        // recommendation_runs를 함께 조인해, 저장한 코디가 어떤 "상황"으로 추천됐는지
+        // (input_conditions_json.situation) 같이 가져온다. 저장 화면의 상황별 그룹에 쓰인다.
         $statement = $this->pdo->prepare(
             'SELECT so.id AS saved_id, so.created_at AS saved_at,
                     o.id AS outfit_internal_id, o.public_id AS outfit_public_id, o.title, o.summary,
                     o.framing_label, o.total_price, o.reason_text, o.evidence_json, o.risk_notes_json,
-                    o.confidence, o.sort_order, o.run_id
+                    o.confidence, o.sort_order, o.run_id,
+                    r.input_conditions_json AS conditions_json
              FROM saved_outfits so
              INNER JOIN recommendation_outfits o ON o.id = so.outfit_id
+             INNER JOIN recommendation_runs r ON r.id = o.run_id
              WHERE so.user_id = :userId
              ORDER BY so.created_at DESC, so.id DESC',
         );
@@ -118,6 +122,7 @@ final class SavedOutfitRepository
         return array_map(fn (array $row): array => [
             'savedOutfitId' => (int) $row['saved_id'],
             'savedAt' => (string) $row['saved_at'],
+            'situation' => $this->extractSituation($row['conditions_json']),
             'outfit' => [
                 'id' => (int) $row['outfit_internal_id'],
                 'publicId' => (string) $row['outfit_public_id'],
@@ -133,6 +138,17 @@ final class SavedOutfitRepository
                 'sortOrder' => (int) $row['sort_order'],
             ],
         ], $statement->fetchAll());
+    }
+
+    // 추천 run의 조건 JSON에서 situation 값만 안전하게 뽑아낸다(없으면 null).
+    private function extractSituation(mixed $conditionsJson): ?string
+    {
+        $decoded = JsonColumn::decode($conditionsJson);
+        if (!is_array($decoded)) {
+            return null;
+        }
+        $situation = $decoded['situation'] ?? null;
+        return is_string($situation) && $situation !== '' ? $situation : null;
     }
 
     /**

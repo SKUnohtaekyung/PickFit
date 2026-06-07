@@ -3,11 +3,10 @@
 // ========================================
 
 import { state } from '../utils/state.js';
-import { showToast, staggerChildren } from '../utils/animations.js';
-import { persistToggleSaved } from '../api/userActions.js';
+import { staggerChildren } from '../utils/animations.js';
 import { resolveProductFromItem } from '../utils/resolvers.js';
 import { escapeHtml as e } from '../utils/escape.js';
-import { renderSaveIcon, renderSaveText, syncSaveControls } from '../components/saveControls.js';
+import { renderSaveIcon, renderSaveText, toggleSaveFromClick } from '../components/saveControls.js';
 import { getRecommendationRun } from '../api/recommendations.js';
 import { adaptRecommendationResponse } from '../api/recommendationAdapter.js';
 import { getSourceProductIds, countSourceMatches } from '../utils/sourceProducts.js';
@@ -181,16 +180,8 @@ export async function renderResults(container, { navigateTo }) {
       event.stopPropagation();
       const outfitId = button.dataset.saveOutfit;
       const outfit = recommendations.find((o) => o.id === outfitId);
-      const justSaved = state.toggleSaved(outfitId, outfit);
-      syncSaveControls(container, outfitId);
-      showToast(justSaved ? '코디를 저장했어요.' : '저장을 해제했어요.');
-      persistToggleSaved(outfit, justSaved).then((result) => {
-        if (result.status === 'unauthenticated') {
-          showToast('로그인하면 저장이 동기화돼요.');
-        } else if (result.status === 'api-error') {
-          showToast('저장이 서버에 반영되지 못했어요. 잠시 후 다시 시도해 주세요.');
-        }
-      });
+      // 낙관적 토글·UI 동기화·서버 반영·실패 롤백 + 진행 중 재클릭 가드를 한 번에 처리.
+      toggleSaveFromClick(container, outfit);
     });
   });
 }

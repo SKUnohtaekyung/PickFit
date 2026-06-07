@@ -59,6 +59,7 @@ export function adaptSavedOutfitEntry(entry, index = 0) {
     id: adaptedOutfit?.id || outfit?.publicId || entry?.id || null,
     savedAt: entry?.savedAt || null,
     savedOutfitId: entry?.savedOutfitId || null,
+    situation: entry?.situation || null, // 상황별 그룹용(서버가 run 조건에서 내려줌)
     outfit: adaptedOutfit,
   };
 }

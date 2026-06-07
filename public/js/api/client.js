@@ -14,7 +14,7 @@ export class ApiError extends Error {
   }
 }
 
-export async function apiRequest(path, options = {}, retried = false) {
+export async function apiRequest(path, options = {}, retried = false, networkRetried = false) {
   const {
     method = 'GET',
     body,
@@ -22,6 +22,9 @@ export async function apiRequest(path, options = {}, retried = false) {
     headers = {},
     timeoutMs = 15000,
     signal,
+    // 멱등한 GET은 일시적 네트워크/타임아웃 오류를 1회 자동 재시도한다.
+    // POST 등 비멱등 요청은 중복 부작용 위험이 있어 기본적으로 끈다.
+    retryOnNetwork = method === 'GET',
   } = options;
   const requestHeaders = {
     Accept: 'application/json',
@@ -50,6 +53,8 @@ export async function apiRequest(path, options = {}, retried = false) {
     }
   }
 
+  // 호출자가 직접 취소(signal abort)한 경우와, 우리 타임아웃/네트워크 단절을
+  // 구분하기 위해 fetch 전에 호출자 취소 여부를 기록해 둔다.
   let response;
   try {
     response = await fetch(path, {
@@ -60,7 +65,16 @@ export async function apiRequest(path, options = {}, retried = false) {
       signal: controller.signal,
     });
   } catch (error) {
-    throw normalizeFetchError(error);
+    const normalized = normalizeFetchError(error);
+    const callerAborted = !!signal?.aborted; // 사용자가 취소한 요청은 재시도하지 않음
+    const isRetryable = normalized.code === 'network_error' || normalized.code === 'timeout';
+    if (retryOnNetwork && isRetryable && !networkRetried && !callerAborted) {
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      signal?.removeEventListener('abort', abortFromCaller);
+      await delay(400);
+      return apiRequest(path, options, retried, true);
+    }
+    throw normalized;
   } finally {
     if (timeoutId !== null) {
       window.clearTimeout(timeoutId);
@@ -176,6 +190,10 @@ async function readJson(response) {
       code: 'invalid_json_response',
     });
   }
+}
+
+function delay(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function normalizeFetchError(error) {

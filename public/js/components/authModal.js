@@ -56,6 +56,15 @@ export function getAuthUser() {
   return authState.user;
 }
 
+// 프로필 편집 등으로 사용자 정보가 바뀌었을 때 캐시를 갱신하고 변경을 알린다.
+// (로그인/로그아웃이 아니라 같은 사용자의 필드 변경이므로 user만 교체)
+export function setAuthUser(user) {
+  if (!user) return;
+  authState.user = user;
+  authState.ready = true;
+  notifyAuthChange();
+}
+
 export function openAuthModal(mode = 'login') {
   activeMode = mode === 'register' ? 'register' : 'login';
   ensureModalRoot();

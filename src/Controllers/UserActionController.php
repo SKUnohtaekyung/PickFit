@@ -49,6 +49,7 @@ final class UserActionController
             return [
                 'savedOutfitId' => $entry['savedOutfitId'],
                 'savedAt' => $entry['savedAt'],
+                'situation' => $entry['situation'] ?? null, // 상황별 그룹용
                 'outfit' => array_merge(
                     $entry['outfit'],
                     ['items' => $outfitItems],

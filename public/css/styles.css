@@ -2043,6 +2043,64 @@ input  { font-family: inherit; }
 @keyframes toastOut { to   { opacity:0; transform:translateY(6px) scale(0.96); } }
 
 /* ============================================================
+   OFFLINE BANNER (connectivity.js)
+   ============================================================ */
+.pf-offline-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--pf-warning-surface);
+  color: var(--pf-warning);
+  border-bottom: 1px solid rgba(183, 121, 31, 0.22);
+  font-size: 13px;
+  font-weight: 700;
+  transform: translateY(-100%);
+  transition: transform var(--mid) var(--ease);
+  pointer-events: none;
+}
+.pf-offline-banner.is-visible { transform: translateY(0); }
+.pf-offline-banner svg { flex-shrink: 0; }
+
+/* ============================================================
+   ERROR FALLBACK SCREEN (app.js error boundary)
+   ============================================================ */
+.pf-error-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 70vh;
+  padding: 24px;
+}
+.pf-error-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  padding: 28px 24px;
+  max-width: 360px;
+  width: 100%;
+}
+.pf-error-icon { color: var(--pf-warning); }
+.pf-error-title { font-size: 17px; font-weight: 800; color: var(--pf-ink); }
+.pf-error-desc { font-size: 14px; color: var(--pf-text-secondary); line-height: 1.5; }
+.pf-error-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+  width: 100%;
+}
+.pf-error-actions .pf-btn-primary,
+.pf-error-actions .pf-btn-secondary { flex: 1; }
+
+/* ============================================================
    BADGES
    ============================================================ */
 .pf-badge-warning {
@@ -2747,6 +2805,17 @@ input  { font-family: inherit; }
   border-radius: 12px;
 }
 
+/* 구매 링크가 아직 없는 상품 — 준비 중임을 흐린 비활성 스타일로 표시 */
+.dt-purchase-btn.is-pending {
+  background: var(--pf-surface-subtle);
+  color: var(--pf-text-secondary);
+  cursor: default;
+}
+.dt-purchase-btn.is-pending:hover {
+  transform: none;
+  box-shadow: none;
+}
+
 .rs-detail-btn:hover,
 .dt-compare-btn:hover,
 .dt-purchase-btn:hover,
@@ -3353,10 +3422,116 @@ input  { font-family: inherit; }
   flex-shrink: 0;
 }
 
+/* ===== 저장 → 비교 선택 모드 ===== */
+.sv-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.sv-compare-toggle {
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1.5px solid var(--pf-border);
+  background: var(--pf-white);
+  color: var(--pf-ink);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.sv-compare-toggle:hover { background: var(--pf-surface-subtle); }
+.sv-compare-toggle.is-active {
+  background: var(--pf-info-surface);
+  border-color: rgba(77, 94, 255, 0.22);
+  color: var(--pf-cta-blue);
+}
+.sv-compare-toggle:focus-visible { outline: 2px solid var(--pf-cta-blue); outline-offset: 2px; }
+
+/* 선택 가능한 카드 — 탭하면 선택 토글 */
+.sv-card.is-selectable { cursor: pointer; }
+.sv-card.is-selected {
+  outline: 2px solid var(--pf-cta-blue);
+  outline-offset: -2px;
+}
+.sv-select-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  align-self: center;
+  border-radius: 999px;
+  border: 1.5px solid var(--pf-border);
+  background: var(--pf-white);
+  color: transparent;
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.sv-select-indicator.is-on {
+  background: var(--pf-cta-blue);
+  border-color: var(--pf-cta-blue);
+  color: var(--pf-white);
+}
+
+/* 비교하기 액션 바 */
+.sv-compare-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--pf-surface-subtle);
+}
+.sv-compare-count {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--pf-text-secondary);
+}
+.sv-compare-go {
+  min-height: 44px;
+  padding: 0 22px;
+  border-radius: 14px;
+  background: var(--pf-cta-blue);
+  color: var(--pf-white);
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: opacity var(--fast) var(--ease), transform var(--fast) var(--ease);
+}
+.sv-compare-go:hover:not(:disabled) { transform: translateY(-2px); }
+.sv-compare-go:disabled { opacity: 0.45; cursor: default; }
+.sv-compare-go:focus-visible { outline: 2px solid var(--pf-cta-blue); outline-offset: 2px; }
+
 .sv-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* 저장 상황별 그룹 헤더 */
+.sv-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px; /* sv-list gap(12px)와 합쳐 그룹 간 24px 분리 */
+  padding: 0 2px;
+}
+.sv-group-head:first-child { margin-top: 0; }
+.sv-group-title {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--pf-ink);
+}
+.sv-group-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--pf-text-secondary);
 }
 
 .sv-card {
@@ -4233,6 +4408,48 @@ input  { font-family: inherit; }
 .acc-logout { margin: auto 20px 0; height: 52px; border-radius: 14px; background: var(--pf-white); border: 1px solid var(--pf-border); color: var(--pf-error); font-size: 15px; font-weight: 800; cursor: pointer; }
 .acc-logout:focus-visible { outline: 2px solid var(--pf-cta-blue); outline-offset: 2px; }
 .acc-logout:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* ===== 프로필 편집 화면 ===== */
+.prof-form { padding: 4px 20px 24px; display: flex; flex-direction: column; gap: 18px; }
+.prof-field { display: flex; flex-direction: column; gap: 8px; }
+.prof-field > span { font-size: 13px; font-weight: 700; color: var(--pf-ink); }
+.prof-field input {
+  height: 50px; padding: 0 14px; border-radius: 14px;
+  border: 1.5px solid var(--pf-border); background: var(--pf-white);
+  color: var(--pf-ink); font-size: 15px; font-weight: 600;
+  transition: border-color var(--fast) var(--ease);
+}
+.prof-field input::placeholder { color: var(--pf-text-secondary); }
+.prof-field input:focus-visible { outline: none; border-color: var(--pf-cta-blue); }
+.prof-field input:disabled { background: var(--pf-surface-subtle); color: var(--pf-text-secondary); cursor: not-allowed; }
+.prof-hint { font-size: 12px; font-weight: 600; color: var(--pf-text-secondary); }
+.prof-submit { height: 54px; margin-top: 4px; border-radius: 16px; font-size: 16px; }
+
+/* ===== 설정 화면 ===== */
+.acc-row-text { display: flex; flex-direction: column; gap: 3px; text-align: left; min-width: 0; }
+.acc-row-sub { font-size: 12px; font-weight: 600; color: var(--pf-text-secondary); line-height: 1.4; }
+.set-row-static, .set-row-danger { height: auto; min-height: 64px; padding-top: 12px; padding-bottom: 12px; }
+.set-row-static { cursor: default; }
+.set-row-danger .acc-row-label { color: var(--pf-error); }
+
+/* 토글 스위치 */
+.set-switch {
+  position: relative; flex-shrink: 0;
+  width: 48px; height: 28px; border-radius: 999px;
+  border: none; background: var(--pf-border); cursor: pointer;
+  transition: background var(--fast) var(--ease);
+}
+.set-switch.is-on { background: var(--pf-cta-blue); }
+.set-switch-knob {
+  position: absolute; top: 3px; left: 3px;
+  width: 22px; height: 22px; border-radius: 999px; background: var(--pf-white);
+  box-shadow: 0 2px 6px rgba(18,20,26,0.2);
+  transition: transform var(--fast) var(--ease);
+}
+.set-switch.is-on .set-switch-knob { transform: translateX(20px); }
+.set-switch:focus-visible { outline: 2px solid var(--pf-cta-blue); outline-offset: 2px; }
+
+.set-version { margin: 18px 20px 0; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; color: var(--pf-text-secondary); text-align: center; }
 
 /* ============================================================
    SAFE AREA / REDUCED MOTION
