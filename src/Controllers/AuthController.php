@@ -84,6 +84,33 @@ final class AuthController
         ]);
     }
 
+    public function updateProfile(Request $request): Response
+    {
+        $data = $this->json($request);
+        if ($data instanceof Response) {
+            return $data;
+        }
+
+        // 성별은 male/female 둘 중 하나여야 한다(가입 시 필수값과 동일 규칙).
+        $gender = $data['gender'] ?? null;
+        if (!is_string($gender) || !in_array(strtolower(trim($gender)), ['male', 'female'], true)) {
+            return $this->validationError('gender must be male or female.');
+        }
+
+        try {
+            $user = $this->auth->updateProfile(
+                $this->optionalStringValue($data, 'displayName'),
+                $gender,
+            );
+        } catch (InvalidArgumentException $exception) {
+            return $this->validationError($exception->getMessage());
+        }
+
+        return $this->success([
+            'user' => $user,
+        ]);
+    }
+
     public function me(): Response
     {
         $user = $this->auth->currentUser();

@@ -118,6 +118,16 @@ final class Bootstrap
         $router->get('/api/auth/me', fn (array $_): Response => $this->withSession(
             fn (): Response => (new AuthController(new AuthService()))->me(),
         ));
+        // 프로필 편집(닉네임·성별): CSRF + 로그인 필수 + DB 가드.
+        $router->post('/api/profile', fn (array $_): Response => $this->withCsrfProtection(
+            $request,
+            $csrf,
+            fn (): Response => $this->withAuthenticatedUser(
+                fn (array $sessionUser): Response => $this->withAuthDatabase(
+                    fn (AuthController $auth): Response => $auth->updateProfile($request),
+                ),
+            ),
+        ));
         $router->get('/api/products', fn (array $_): Response => $this->withCatalog(
             fn (CatalogController $catalog): Response => $catalog->index($request),
         ));
