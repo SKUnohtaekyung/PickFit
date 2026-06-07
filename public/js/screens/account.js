@@ -45,9 +45,17 @@ export function renderAccount(container, { navigateTo } = {}) {
       </section>
 
       <section class="acc-list">
+        <button type="button" class="acc-row" id="acc-profile">
+          <span class="acc-row-label">프로필 편집</span>
+          <span class="acc-row-meta"><span class="acc-row-arrow" aria-hidden="true">›</span></span>
+        </button>
         <button type="button" class="acc-row" id="acc-saved">
           <span class="acc-row-label">저장한 코디</span>
           <span class="acc-row-meta">${savedCount}개 <span class="acc-row-arrow" aria-hidden="true">›</span></span>
+        </button>
+        <button type="button" class="acc-row" id="acc-settings">
+          <span class="acc-row-label">설정</span>
+          <span class="acc-row-meta"><span class="acc-row-arrow" aria-hidden="true">›</span></span>
         </button>
       </section>
 
@@ -56,7 +64,9 @@ export function renderAccount(container, { navigateTo } = {}) {
   `;
 
   container.querySelector('#acc-back')?.addEventListener('click', () => navigateTo?.('home'));
+  container.querySelector('#acc-profile')?.addEventListener('click', () => navigateTo?.('profile'));
   container.querySelector('#acc-saved')?.addEventListener('click', () => navigateTo?.('saved'));
+  container.querySelector('#acc-settings')?.addEventListener('click', () => navigateTo?.('settings'));
 
   const logoutBtn = container.querySelector('#acc-logout');
   logoutBtn?.addEventListener('click', async () => {

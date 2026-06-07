@@ -5,6 +5,8 @@
 // 생성 마크업과 DOM 동작은 기존 화면별 구현과 100% 동일하게 유지한다.
 
 import { state } from '../utils/state.js';
+import { persistToggleSaved } from '../api/userActions.js';
+import { showToast } from '../utils/animations.js';
 
 export function heartIcon() {
   return `
@@ -31,6 +33,39 @@ export function renderSaveText(isSaved) {
     ${isSaved ? savedHeartIcon() : heartIcon()}
     <span>${isSaved ? '저장됨' : '코디 저장'}</span>
   `;
+}
+
+// 서버 동기화가 진행 중인 outfit id 집합. 진행 중에는 같은 코디의 추가 토글을
+// 무시해, 낙관적 변경과 롤백 사이에 다른 토글이 끼어 "현재 상태 토글"이 엉뚱한
+// 방향으로 원복되는 레이스를 막는다.
+const pendingSaves = new Set();
+
+// 저장 버튼 클릭의 단일 진입점: 낙관적 토글 → UI 동기화 → 서버 반영 →
+// 실패 시 정확히 직전 변경만 원복. results/detail가 공통으로 사용한다.
+export function toggleSaveFromClick(root, outfit) {
+  const id = outfit?.id;
+  if (!id) return;
+  if (pendingSaves.has(id)) return; // 직전 토글의 서버 응답을 기다리는 중이면 무시
+
+  const justSaved = state.toggleSaved(id, outfit);
+  syncSaveControls(root, id);
+  showToast(justSaved ? '코디를 저장했어요.' : '저장을 해제했어요.');
+
+  pendingSaves.add(id);
+  persistToggleSaved(outfit, justSaved).then((result) => {
+    if (result.status === 'unauthenticated') {
+      showToast('로그인하면 저장이 동기화돼요.');
+    } else if (result.status === 'api-error') {
+      // 진행 중 재클릭을 막았으므로 현재 상태 == 낙관적 상태 → toggleSaved 1회로 정확히 원복.
+      state.toggleSaved(id, outfit);
+      syncSaveControls(root, id);
+      showToast(justSaved
+        ? '저장에 실패했어요. 잠시 후 다시 시도해 주세요.'
+        : '저장 해제에 실패했어요. 잠시 후 다시 시도해 주세요.');
+    }
+  }).finally(() => {
+    pendingSaves.delete(id);
+  });
 }
 
 // 같은 outfit의 저장 버튼(아이콘/텍스트 변형)을 현재 저장 상태로 동기화

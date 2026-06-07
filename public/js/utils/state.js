@@ -176,6 +176,8 @@ class StateManager {
       this._state.saved.push({
         id: outfitId,
         savedAt: new Date().toISOString(),
+        // 저장 시점의 상황을 함께 기록 → 동기화 전에도 상황별 그룹이 맞게 보인다.
+        situation: this._state.onboarding?.situation || null,
         outfit: outfit || null,
         source: 'local',
       });
@@ -190,6 +192,7 @@ class StateManager {
     this._state.saved = Array.isArray(entries) ? entries.map((entry) => ({
       id: entry.outfit?.id || entry.outfit?.publicId || entry.id,
       savedAt: entry.savedAt || new Date().toISOString(),
+      situation: entry.situation || null, // 서버가 run 조건에서 내려준 상황
       outfit: entry.outfit || null,
       savedOutfitId: entry.savedOutfitId || null,
       source: 'api',
@@ -201,9 +204,13 @@ class StateManager {
 
   markSavedFromApi(outfitId, entry) {
     const idx = this._state.saved.findIndex(s => s.id === outfitId);
+    // 저장 POST 응답엔 상황이 없으므로, 낙관적 추가 때 기록한 기존 situation을 보존하고
+    // 없으면 현재 온보딩 상황으로 보강한다(다음 동기화 때 서버 값으로 확정됨).
+    const prevSituation = idx >= 0 ? this._state.saved[idx].situation : null;
     const next = {
       id: outfitId,
       savedAt: entry?.savedAt || new Date().toISOString(),
+      situation: entry?.situation || prevSituation || this._state.onboarding?.situation || null,
       outfit: entry?.outfit || null,
       savedOutfitId: entry?.savedOutfitId || null,
       source: 'api',
