@@ -6,6 +6,12 @@ vendor/
 .env
 .env.*
 !.env.example
+.envrc
+
+# Local AI/editor tool state
+.claude/
+.cursor/
+.aider*
 
 # Runtime / generated files
 storage/

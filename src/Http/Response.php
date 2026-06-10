@@ -9,9 +9,12 @@ final class Response
     // 모든 응답에 적용하는 심층 방어용 보안 헤더(응답별 헤더가 같은 키를 지정하면 그쪽 우선).
     // SAMEORIGIN: 동일 출처 프레임은 허용(프리뷰 등)하되 외부 클릭재킹은 차단.
     private const SECURITY_HEADERS = [
+        'Content-Security-Policy' => "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src 'self' https://cdn.jsdelivr.net https://fonts.gstatic.com data:; img-src 'self' https: data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'",
         'X-Content-Type-Options' => 'nosniff',
         'X-Frame-Options' => 'SAMEORIGIN',
         'Referrer-Policy' => 'strict-origin-when-cross-origin',
+        'Permissions-Policy' => 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+        'X-Permitted-Cross-Domain-Policies' => 'none',
     ];
 
     /**

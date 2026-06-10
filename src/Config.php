@@ -69,10 +69,30 @@ final class Config
             }
 
             [$key, $value] = explode('=', $trimmed, 2);
-            $values[trim($key)] = trim($value, " \t\n\r\0\x0B\"'");
+            $key = trim($key);
+            if (preg_match('/^[A-Z0-9_]+$/', $key) !== 1) {
+                continue;
+            }
+            $values[$key] = self::parseEnvValue($value);
         }
 
         return $values;
+    }
+
+    private static function parseEnvValue(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+
+        $first = $value[0];
+        if (($first === '"' || $first === "'") && str_ends_with($value, $first)) {
+            return substr($value, 1, -1);
+        }
+
+        $value = preg_replace('/\s+#.*$/', '', $value) ?? $value;
+        return trim($value, " \t\n\r\0\x0B\"'");
     }
 
     public function get(string $key, ?string $default = null): ?string
