@@ -36,6 +36,15 @@ const BUDGET_LABELS = {
   over200k: '20만 원+',
 };
 
+// 1인당(아이템당) 예산 상한 — 백엔드 BUDGET_CAPS 와 동일. 카드의 '예산 적합' 배지가
+// 실제 가격을 반영하도록 쓰인다(무조건 표시 → 실제 충족 시에만 표시).
+const BUDGET_CAP_VALUES = {
+  under50k: 50000,
+  '50k-100k': 100000,
+  '100k-200k': 200000,
+  over200k: 600000,
+};
+
 const FIT_LABELS = {
   slim: '슬림',
   regular: '레귤러',
@@ -67,6 +76,12 @@ export async function renderResults(container, { navigateTo }) {
     try {
       const apiData = await getRecommendationRun(lastRunId);
       const adapted = adaptRecommendationResponse(apiData);
+      // 조건이 바뀐 뒤의 콜드 로드 방지: 불러온 run의 조건이 현재 온보딩과 다르면
+      // 옛 run을 보여주지 말고 온보딩으로 보낸다(조건 바꿔도 옛 결과가 뜨는 현상 차단).
+      if (!conditionsRoughlyMatch(adapted.conditions, state.get('onboarding') || {})) {
+        navigateTo('onboarding');
+        return;
+      }
       if (Array.isArray(adapted.outfits) && adapted.outfits.length >= 3) {
         state.setRecommendations(adapted.outfits, 'api-rehydrated');
         recommendations = adapted.outfits;
@@ -98,6 +113,7 @@ export async function renderResults(container, { navigateTo }) {
 
   const onboarding = state.get('onboarding') || {};
   const conditionTags = buildConditionTags(onboarding);
+  const budgetCap = BUDGET_CAP_VALUES[onboarding.budget] ?? null; // 1인당 상한(없으면 null)
   const compareCount = Math.min(recommendations.length, 3);
   // Trust UX: only count what actually appears in the response. Backend grants
   // +5 score per sourceProductId but never guarantees inclusion. Computed here
@@ -152,7 +168,7 @@ export async function renderResults(container, { navigateTo }) {
       </section>
 
       <section class="rs-list" id="outfit-list">
-        ${recommendations.map((outfit, index) => renderOutfitCard(outfit, index)).join('')}
+        ${recommendations.map((outfit, index) => renderOutfitCard(outfit, index, budgetCap)).join('')}
       </section>
     </div>
   `;
@@ -186,13 +202,17 @@ export async function renderResults(container, { navigateTo }) {
   });
 }
 
-function renderOutfitCard(outfit, index) {
+function renderOutfitCard(outfit, index, budgetCap = null) {
   const items = outfit.items.map((item) => ({
     ...item,
     product: resolveProductFromItem(item),
   }));
   const isSaved = state.isSaved(outfit.id);
   const highlights = outfit.reasons.slice(0, 2);
+  // '예산 적합' 배지는 실제로 모든 아이템이 1인당 상한 이하일 때만 표시한다.
+  // (예산 미선택이거나 완화로 초과 상품이 섞이면 거짓 표기 대신 배지를 숨긴다.)
+  const withinBudget = budgetCap != null
+    && items.every((item) => (item.product?.price ?? 0) <= budgetCap);
 
   return `
     <article class="rs-card pf-card">
@@ -241,7 +261,7 @@ function renderOutfitCard(outfit, index) {
           <p class="rs-total-label">Estimated Total</p>
           <div class="rs-total-row">
             <p class="rs-total-value">${outfit.totalPrice.toLocaleString()}원</p>
-            <span class="rs-total-badge">예산 적합</span>
+            ${withinBudget ? '<span class="rs-total-badge">예산 적합</span>' : ''}
           </div>
         </div>
 
@@ -340,6 +360,27 @@ function renderRehydrateError(container, navigateTo, { message, allowRetry }) {
     state.set('lastRunId', null);
     navigateTo('onboarding');
   });
+}
+
+// 불러온 run의 조건이 현재 온보딩 선택과 (대략) 같은지 비교한다. runConditions 가
+// 없으면(구버전 run) 판단 불가로 보고 통과시켜 불필요한 이탈을 막는다. 주요 식별
+// 필드(상황·예산·핏 + 다중선택 배열)만 비교하고 freeText 는 제외한다.
+function conditionsRoughlyMatch(runConditions, onboarding) {
+  if (!runConditions || typeof runConditions !== 'object') return true;
+  const norm = (v) => (v === undefined || v === null || v === '' ? null : v);
+  const arr = (v) => (Array.isArray(v) ? [...v].filter(Boolean).sort() : []);
+  const sameArr = (a, b) => {
+    const x = arr(a);
+    const y = arr(b);
+    return x.length === y.length && x.every((v, i) => v === y[i]);
+  };
+  return norm(runConditions.situation) === norm(onboarding.situation)
+    && norm(runConditions.budget) === norm(onboarding.budget)
+    && norm(runConditions.fit) === norm(onboarding.fit)
+    && sameArr(runConditions.mood, onboarding.mood)
+    && sameArr(runConditions.bodyType, onboarding.bodyType)
+    && sameArr(runConditions.colors, onboarding.colors)
+    && sameArr(runConditions.avoidances, onboarding.avoidances);
 }
 
 function buildConditionTags(onboarding) {

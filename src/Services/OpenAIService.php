@@ -164,6 +164,17 @@ final class OpenAIService
             ],
         ];
 
+        // temperature/seed는 설정된 경우에만 바디에 포함(옵트인). 미지원 모델에서
+        // 불필요한 키로 400을 유발하지 않도록 한다.
+        $temperature = $this->config->openAiTemperature();
+        if ($temperature !== null) {
+            $body['temperature'] = $temperature;
+        }
+        $seed = $this->config->openAiSeed();
+        if ($seed !== null) {
+            $body['seed'] = $seed;
+        }
+
         $bodyJson = json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         if ($bodyJson === false) {
             return ['ok' => false, 'error' => 'openai_payload_encode_failed'];
@@ -360,6 +371,31 @@ final class OpenAIService
             return null;
         }
         return $content;
+    }
+
+    /**
+     * 구조화 이벤트 로그(추천 fallback 사유 등)를 일별 로그에 한 줄 기록한다.
+     * logDirectory 미설정 시 무동작(운영 환경 외에서는 조용히 패스).
+     *
+     * @param array<string, mixed> $context
+     */
+    public function logEvent(string $kind, array $context = []): void
+    {
+        if ($this->logDirectory === null) {
+            return;
+        }
+        $dir = $this->logDirectory;
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+            return;
+        }
+        $logPath = $dir . DIRECTORY_SEPARATOR . date('Y-m-d') . '.log';
+        $entry = json_encode(
+            ['ts' => date(DATE_ATOM), 'kind' => $kind, 'context' => $context],
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES,
+        );
+        if ($entry !== false) {
+            @file_put_contents($logPath, $entry . PHP_EOL, FILE_APPEND);
+        }
     }
 
     private function logRawResponse(string $kind, string $rawResponse, int $httpStatus): void

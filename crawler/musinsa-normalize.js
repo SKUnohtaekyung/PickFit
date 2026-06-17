@@ -164,10 +164,29 @@ function styleTags(name, slot) {
 function occasionTags(name, slot) {
   const t = name.toLowerCase();
   const out = new Set();
-  if (/셔츠|블레이저|슬랙스|자켓|면바지|치노/.test(t)) { out.add('office'); out.add('interview'); out.add('date'); }
-  if (/트레이닝|트랙|조거|스웨트|후드|반팔티|반팔 티/.test(t)) { out.add('daily'); out.add('casual'); }
-  if (/니트|가디건/.test(t)) { out.add('daily'); out.add('date'); out.add('office'); }
-  if (/코트|패딩|블레이저/.test(t)) { out.add('daily'); out.add('office'); }
+
+  // 신발: 기존엔 전부 daily/casual로만 떨어져 상황(office/date) 추천이 무력했다.
+  // 종류별로 상황을 분화한다.
+  if (slot === 'shoes') {
+    if (/로퍼|페니로퍼|정장화|구두|더비|옥스포드/.test(t)) { out.add('office'); out.add('interview'); out.add('date'); }
+    if (/펌프스|키튼힐|스틸레토|슬링백|메리제인|하이힐/.test(t)) { out.add('date'); out.add('daily'); }
+    if (/레인부츠|레인 부츠|rain/.test(t)) { out.add('rainy'); out.add('daily'); }
+    else if (/부츠|boots|첼시/.test(t)) { out.add('daily'); out.add('date'); }
+    if (/스니커즈|sneaker|운동화|러닝|running|trail|에어로|척|컨버스|converse|canvas|캔버스/.test(t)) { out.add('daily'); out.add('casual'); out.add('travel'); }
+    if (/샌들|sandal|슬리퍼|슬라이드|slide|플립|flip|뮬|mule|클로그|clog/.test(t)) { out.add('daily'); out.add('casual'); }
+    if (/플랫|flat/.test(t)) { out.add('daily'); out.add('office'); }
+    if (out.size === 0) { out.add('daily'); out.add('casual'); }
+    return [...out].slice(0, 4);
+  }
+
+  // 상의/하의/아우터: office와 date 집합이 서로 다른 멤버를 갖도록 분리한다.
+  // (이전엔 셔츠·블레이저류가 office+date를 동시에 받아 두 상황이 같은 결과였다.)
+  if (/셔츠|블레이저|슬랙스|자켓|정장|면바지|치노/.test(t)) { out.add('office'); out.add('interview'); }
+  if (/블레이저|자켓|정장/.test(t)) { out.add('wedding'); }
+  if (/니트|가디건|블라우스|원피스|knit/.test(t)) { out.add('date'); out.add('daily'); }
+  if (/원피스/.test(t)) { out.add('wedding'); }
+  if (/트레이닝|트랙|조거|스웨트|후드|맨투맨|반팔|티셔츠|tee|데님|denim|청|반바지/.test(t)) { out.add('daily'); out.add('casual'); out.add('travel'); }
+  if (/코트|패딩/.test(t)) { out.add('office'); out.add('daily'); out.add('date'); }
   if (out.size === 0) { out.add('daily'); out.add('casual'); }
   return [...out].slice(0, 4);
 }

@@ -17,6 +17,8 @@ final class RecommendationService
     private const OUTFIT_TITLE_MAX = 120;
     private const OUTFIT_FRAMING_MAX = 120;
     private const DEFAULT_FALLBACK_CONFIDENCE = 0.55;
+    // OpenAI 프롬프트에 보낼 슬롯별 후보 상한(이미 relevance 순 정렬됨). 토큰 절감 + 집중도↑.
+    private const PROMPT_CANDIDATES_PER_SLOT = 24;
 
     private const SITUATION_FRAMING = [
         'office' => '출근 상황에 가장 적합',
@@ -93,10 +95,17 @@ final class RecommendationService
             $userGender,
         );
 
+        // 예산(1인당 상한)을 후보 단계에서 하드 적용한다. OpenAI·fallback 분기 이전에
+        // 한 번만 prune 하므로 두 경로가 동일한 예산 내 풀을 보게 된다.
+        $budgetOutcome = $this->pruneByBudget($candidates, $budgetCap);
+        $candidates = $budgetOutcome['candidates'];
+        $budgetRelaxed = $budgetOutcome['relaxed'];
+
         if (!$this->hasMinimumCoverage($candidates)) {
             throw new RuntimeException('low_catalog_coverage');
         }
 
+        // 검증 화이트리스트·OpenAI 프롬프트·fallback 모두 prune된 풀 기준으로 맞춘다.
         $candidateProductPublicIds = $this->collectAllCandidatePublicIds($candidates);
         $candidatesByPublicId = $this->indexCandidatesByPublicId($candidates);
 
@@ -129,6 +138,12 @@ final class RecommendationService
             if (count($outfits) < 3) {
                 throw new RuntimeException('low_catalog_coverage');
             }
+        }
+
+        // 예산을 완전히 못 맞춰 초과 상품을 끼워 넣은 run은 confidence를 낮춰
+        // "예산 적합"을 과신하지 않도록 정직하게 신호한다(프론트 배지와도 연동).
+        if ($budgetRelaxed) {
+            $outfits = $this->applyBudgetRelaxationPenalty($outfits);
         }
 
         $persisted = $this->runs->persistRun(
@@ -170,7 +185,14 @@ final class RecommendationService
             $this->recommendationSchemaJson,
         );
 
+        // fallback 으로 떨어질 때마다 사유를 남겨, "왜 결정론 결과가 나왔는지"를
+        // 사후에 추적할 수 있게 한다(이전엔 조용히 null 반환이라 관측 불가했다).
         if (($apiResult['ok'] ?? false) !== true || !isset($apiResult['data']) || !is_array($apiResult['data'])) {
+            $this->openAi->logEvent('recommendation_fallback', [
+                'stage' => 'api',
+                'error' => $apiResult['error'] ?? null,
+                'detail' => $apiResult['detail'] ?? null,
+            ]);
             return null;
         }
 
@@ -179,12 +201,20 @@ final class RecommendationService
             $candidateProductPublicIds,
         );
         if (($validation['ok'] ?? false) !== true) {
+            $this->openAi->logEvent('recommendation_fallback', [
+                'stage' => 'validation',
+                'errors' => array_slice((array) ($validation['errors'] ?? []), 0, 5),
+            ]);
             return null;
         }
 
         $payload = $validation['normalizedPayload'] ?? $apiResult['data'];
         $converted = $this->convertOpenAiOutfits($payload, $candidatesByPublicId);
         if ($converted === null || count($converted) !== 3) {
+            $this->openAi->logEvent('recommendation_fallback', [
+                'stage' => 'convert',
+                'convertedCount' => is_array($converted) ? count($converted) : null,
+            ]);
             return null;
         }
 
@@ -297,6 +327,77 @@ final class RecommendationService
         return count($candidates['top'] ?? []) >= 1
             && count($candidates['bottom'] ?? []) >= 1
             && count($candidates['shoes'] ?? []) >= 1;
+    }
+
+    /**
+     * 예산(1인당 상한)을 후보 풀에 하드 적용한다.
+     *
+     * 슬롯별로 priceSale ≤ cap 상품만 남기되, 필수 슬롯(top/bottom/shoes)이 3개 미만으로
+     * 줄면 부족분을 초과 상품 중 최저가로 채워 coverage(서로 다른 코디 3개)를 보존한다.
+     * 예산 내 상품은 관련도 순서를 유지하고, 완화로 끼워 넣은 상품이 하나라도 있으면
+     * relaxed=true 를 돌려준다(confidence 하향 신호).
+     *
+     * @param array<string, array<int, array<string, mixed>>> $candidates
+     * @return array{candidates: array<string, array<int, array<string, mixed>>>, relaxed: bool}
+     */
+    private function pruneByBudget(array $candidates, ?int $perItemCap): array
+    {
+        if ($perItemCap === null) {
+            return ['candidates' => $candidates, 'relaxed' => false];
+        }
+
+        $minKeep = 3; // 서로 다른 코디 3개를 만들려면 필수 슬롯당 최소 3개 후보 필요
+        $relaxed = false;
+        $pruned = [];
+
+        foreach ($candidates as $slot => $pool) {
+            if (!is_array($pool)) {
+                $pruned[$slot] = [];
+                continue;
+            }
+
+            // 예산 내 후보는 기존 관련도 정렬을 그대로 유지
+            $withinBudget = array_values(array_filter(
+                $pool,
+                static fn (array $p): bool => (int) ($p['priceSale'] ?? PHP_INT_MAX) <= $perItemCap,
+            ));
+
+            if (in_array($slot, self::REQUIRED_SLOTS, true) && count($withinBudget) < $minKeep) {
+                // 초과 상품을 최저가순으로 정렬해 부족분만큼만 보충
+                $overBudget = array_values(array_filter(
+                    $pool,
+                    static fn (array $p): bool => (int) ($p['priceSale'] ?? PHP_INT_MAX) > $perItemCap,
+                ));
+                usort($overBudget, static fn (array $a, array $b): int =>
+                    (int) ($a['priceSale'] ?? PHP_INT_MAX) <=> (int) ($b['priceSale'] ?? PHP_INT_MAX));
+                $added = array_slice($overBudget, 0, $minKeep - count($withinBudget));
+                if ($added !== []) {
+                    $relaxed = true;
+                    $withinBudget = array_merge($withinBudget, $added);
+                }
+            }
+
+            $pruned[$slot] = $withinBudget;
+        }
+
+        return ['candidates' => $pruned, 'relaxed' => $relaxed];
+    }
+
+    /**
+     * 예산 완화가 일어난 run의 각 코디 confidence를 일정폭 낮춘다.
+     *
+     * @param array<int, array<string, mixed>> $outfits
+     * @return array<int, array<string, mixed>>
+     */
+    private function applyBudgetRelaxationPenalty(array $outfits): array
+    {
+        foreach ($outfits as &$outfit) {
+            $current = isset($outfit['confidence']) ? (float) $outfit['confidence'] : self::DEFAULT_FALLBACK_CONFIDENCE;
+            $outfit['confidence'] = $this->clampConfidence($current - 0.15, $current);
+        }
+        unset($outfit);
+
+        return $outfits;
     }
 
     /**
@@ -961,6 +1062,9 @@ final class RecommendationService
             if (!isset($summarized[$slot]) || !is_array($list)) {
                 continue;
             }
+            // 후보는 이미 relevance·dataQuality 순으로 정렬돼 있으므로 슬롯별 상위 K개만
+            // 모델에 보낸다. 프롬프트 토큰을 줄이고 모델이 양질 후보에 집중하게 한다.
+            $list = array_slice($list, 0, self::PROMPT_CANDIDATES_PER_SLOT);
             foreach ($list as $product) {
                 $summarized[$slot][] = [
                     'publicId' => (string) ($product['publicId'] ?? ''),
@@ -1001,6 +1105,9 @@ final class RecommendationService
             return (int) ($a['rank'] ?? 999) <=> (int) ($b['rank'] ?? 999);
         });
 
+        // 카드 간(run 전체) 사용 상품 추적 — 같은 신발/상의가 3장에 반복되는 것을 막는다.
+        // 필수 슬롯에만 적용(outer는 선택이라 반복 허용).
+        $usedAcrossOutfits = [];
         $converted = [];
         foreach ($outfits as $outfit) {
             if (!is_array($outfit)) {
@@ -1033,7 +1140,34 @@ final class RecommendationService
                 if (($product['categoryMain'] ?? null) !== $slot) {
                     return null;
                 }
+
+                // 카드 간 중복 제거: 앞선 카드가 이미 쓴 상품이면(필수 슬롯) 모델이 준
+                // alternativeProductIdsBySlot 에서 미사용 동일 카테고리 후보로 교체한다.
+                // 교체할 후보가 없으면 null → disjoint가 보장된 결정론 fallback으로 넘긴다.
+                if (in_array($slot, self::REQUIRED_SLOTS, true) && isset($usedAcrossOutfits[$primaryId])) {
+                    $replacement = null;
+                    foreach ($alternatives[$slot] ?? [] as $altId) {
+                        if (is_string($altId) && $altId !== ''
+                            && isset($candidatesByPublicId[$altId])
+                            && !isset($usedProductIds[$altId])
+                            && !isset($usedAcrossOutfits[$altId])
+                            && ($candidatesByPublicId[$altId]['categoryMain'] ?? null) === $slot
+                        ) {
+                            $replacement = $altId;
+                            break;
+                        }
+                    }
+                    if ($replacement === null) {
+                        return null;
+                    }
+                    $primaryId = $replacement;
+                    $product = $candidatesByPublicId[$primaryId];
+                }
+
                 $usedProductIds[$primaryId] = true;
+                if (in_array($slot, self::REQUIRED_SLOTS, true)) {
+                    $usedAcrossOutfits[$primaryId] = true;
+                }
 
                 $altIds = [];
                 foreach ($alternatives[$slot] ?? [] as $altId) {

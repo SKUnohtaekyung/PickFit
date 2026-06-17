@@ -10,6 +10,16 @@ use PickFit\Support\JsonColumn;
 
 final class ProductRepository
 {
+    // 사용자 핏 선호 → 상품 fit_type 매핑(점수 가산용). relaxed/straight는
+    // 가까운 표준 핏으로 흡수한다. RecommendationService의 동명 상수와 의미 동일.
+    private const FIT_TYPE_BY_PREFERENCE = [
+        'slim' => 'slim',
+        'regular' => 'regular',
+        'oversized' => 'oversized',
+        'relaxed' => 'oversized',
+        'straight' => 'regular',
+    ];
+
     public function __construct(private readonly PDO $pdo)
     {
     }
@@ -469,6 +479,10 @@ final class ProductRepository
         $situation = is_string($conditions['situation'] ?? null) ? $conditions['situation'] : null;
         $mood = is_array($conditions['mood'] ?? null) ? $conditions['mood'] : [];
         $colors = is_array($conditions['colors'] ?? null) ? $conditions['colors'] : [];
+        // 핏 선호·기피도 후보 점수에 반영 — relevanceScore가 모든 추천 전략의 정렬 키라
+        // 여기 한 곳만 손대면 빌더 수정 없이 전 전략에 적용된다.
+        $fit = is_string($conditions['fit'] ?? null) ? $conditions['fit'] : null;
+        $avoidances = is_array($conditions['avoidances'] ?? null) ? $conditions['avoidances'] : [];
 
         // Recommendation candidates: real batch-ingested (Musinsa) catalog and,
         // when authenticated, the caller's own user_url crawls. The 9 seed mocks
@@ -525,7 +539,7 @@ final class ProductRepository
 
         foreach ($statement->fetchAll() as $row) {
             $shaped = $this->toRecommendationCandidate($row);
-            $shaped['relevanceScore'] = $this->scoreCandidate($shaped, $situation, $mood, $colors, $sourceProductPublicIds);
+            $shaped['relevanceScore'] = $this->scoreCandidate($shaped, $situation, $mood, $colors, $sourceProductPublicIds, $fit, $avoidances);
 
             $category = $shaped['categoryMain'] ?? null;
             if (!isset($grouped[$category])) {
@@ -594,6 +608,7 @@ final class ProductRepository
      * @param array<int, string> $mood
      * @param array<int, string> $colors
      * @param array<int, string> $sourceProductPublicIds
+     * @param array<int, string> $avoidances
      */
     private function scoreCandidate(
         array $candidate,
@@ -601,6 +616,8 @@ final class ProductRepository
         array $mood,
         array $colors,
         array $sourceProductPublicIds,
+        ?string $fit = null,
+        array $avoidances = [],
     ): int {
         $score = 0;
 
@@ -619,6 +636,27 @@ final class ProductRepository
             $score += 1;
         }
 
+        // 핏 선호: 사용자가 고른 핏을 목표 fit_type으로 매핑해 일치 시 가산.
+        // 신발은 fit_type이 NULL이라 자연히 가산/감점 대상이 아니다(슬롯 인지).
+        $candidateFit = is_string($candidate['fitType'] ?? null) ? $candidate['fitType'] : null;
+        if ($fit !== null && $candidateFit !== null) {
+            $targetFit = self::FIT_TYPE_BY_PREFERENCE[$fit] ?? null;
+            if ($targetFit !== null && $candidateFit === $targetFit) {
+                $score += 3;
+            }
+        }
+
+        // 기피: 선택한 회피 항목에 해당하는 상품을 강등(소프트). 빈 풀 위험이 없도록
+        // 제외가 아닌 감점으로 처리하고, 경고문(buildRisks)은 별도로 유지한다.
+        if (in_array('tight', $avoidances, true) && $candidateFit === 'slim') {
+            $score -= 4;
+        }
+        $opacity = is_string($candidate['opacity'] ?? null) ? $candidate['opacity'] : null;
+        if (in_array('sheer', $avoidances, true) && $opacity !== null && $opacity !== 'opaque') {
+            $score -= 4;
+        }
+
+        // 사용자가 직접 넣은 출처 상품(sourceProductIds)은 노출 우선(+5).
         if (in_array($candidate['publicId'], $sourceProductPublicIds, true)) {
             $score += 5;
         }

@@ -129,4 +129,23 @@ final class Config
         $value = $this->get('OPENAI_EXTRACTION_ENABLED', 'false') ?? 'false';
         return filter_var($value, FILTER_VALIDATE_BOOLEAN);
     }
+
+    /**
+     * 추천 응답 다양성 제어용 temperature. 미설정이면 null → 요청 바디에서 키를 생략해
+     * temperature 를 거부하는 모델에서도 400 이 나지 않는다(옵트인).
+     */
+    public function openAiTemperature(): ?float
+    {
+        $value = $this->get('OPENAI_TEMPERATURE');
+        return $value === null || $value === '' ? null : (float) $value;
+    }
+
+    /**
+     * 동일 입력 재현성용 seed(지원 모델 한정). 미설정이면 null → 키 생략.
+     */
+    public function openAiSeed(): ?int
+    {
+        $value = $this->get('OPENAI_SEED');
+        return $value === null || $value === '' ? null : (int) $value;
+    }
 }

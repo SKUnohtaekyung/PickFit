@@ -11,7 +11,7 @@ const STEPS = [
     id: 'budget',
     question: '예산은 어느 정도 생각하세요?',
     displayLines: ['예산은 어느 정도', '생각하세요?'],
-    sub: '전체 코디 기준 예산이에요',
+    sub: '아이템 1개당 예산이에요 (상의·하의·신발 각각)',
     type: 'single',
     options: BUDGETS,
     key: 'budget',
